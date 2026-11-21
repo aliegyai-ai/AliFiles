@@ -75,6 +75,7 @@
         <service
             android:name=".separate.SeparateService"
             android:exported="false"
+            android:process=":separate"
             android:foregroundServiceType="dataSync" />
 
         <service

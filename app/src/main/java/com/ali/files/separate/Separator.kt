@@ -14,32 +14,36 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.ali.files.R
-import com.ali.files.download.Downloader
-import com.ali.files.download.VideoExtractor
 import com.ali.files.library.LibFile
 import com.ali.files.library.Library
+import com.ali.files.ui.UiState
 import com.ali.files.util.FileKind
 import com.ali.files.util.Notifications
-import com.ali.files.ui.UiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
-import kotlin.coroutines.coroutineContext
+import java.util.concurrent.TimeUnit
 
+@Serializable
 enum class SepMode(val label: String, val suffix: String) {
     /** keep the voice, remove the music */
     VOICE("بدون موسيقى", "بدون موسيقى"),
@@ -47,6 +51,7 @@ enum class SepMode(val label: String, val suffix: String) {
     MUSIC("الموسيقى بس", "موسيقى بس"),
 }
 
+@Serializable
 data class SepJob(
     val id: Long,
     val path: String,
@@ -59,67 +64,181 @@ data class SepJob(
     val done: Boolean = false,
     val error: String? = null,
     val output: String? = null,
+    /** for resuming after Android stopped the work: parts already finished */
+    val nextChunk: Int = 0,
+    val decoded: Boolean = false,
 )
 
+/** The job list on disk — shared by the app and the separate worker process. */
+internal object SepStore {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    fun dir(c: Context) = File(c.filesDir, "separate").apply { mkdirs() }
+    private fun file(c: Context) = File(dir(c), "jobs.json")
+    private fun beat(c: Context) = File(dir(c), "heartbeat")
+
+    fun read(c: Context): List<SepJob> = runCatching { json.decodeFromString<List<SepJob>>(file(c).readText()) }.getOrDefault(emptyList())
+
+    @Synchronized fun write(c: Context, l: List<SepJob>) {
+        val tmp = File(dir(c), "jobs.json.tmp")
+        tmp.writeText(json.encodeToString(l))
+        tmp.renameTo(file(c))
+    }
+
+    fun heartbeat(c: Context) = runCatching { beat(c).writeText(System.currentTimeMillis().toString()) }
+    fun lastBeat(c: Context): Long = runCatching { beat(c).readText().toLong() }.getOrDefault(0L)
+    fun workDir(c: Context, id: Long) = File(dir(c), "job_$id")
+}
+
 /**
- * Removes the music from a song / video (or keeps only the music) with the MDX-Net «Kim Vocal 2»
- * model, entirely on the phone. Work happens in [SeparateService] so it continues in the background.
+ * App side of «remove the music». The heavy AI work runs in [SeparateService], in its own process
+ * (`:separate`) — the model needs over 1 GB of memory while it runs, and in its own process Android
+ * doesn't kill it when you leave the app or open the browser. Progress is saved after every part,
+ * so if Android still stops it, it continues from where it was.
  */
 object Separator {
-    private val MODEL_URLS = listOf(
-        "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx",
-        "https://huggingface.co/huangjackson/Kim_Vocal_2/resolve/main/Kim_Vocal_2.onnx",
-    )
-    private const val MODEL_NAME = "Kim_Vocal_2.onnx"
-    private const val MODEL_MIN_SIZE = 60_000_000L
-    /** volume correction recommended for this model */
-    private const val COMPENSATE = 1.009f
-
     private val _jobs = MutableStateFlow<List<SepJob>>(emptyList())
     val jobs: StateFlow<List<SepJob>> = _jobs
-    private val cancelled = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+    private val hidden = HashSet<Long>()
+    private val seenDone = HashSet<Long>()
 
     fun start(c: Context, f: LibFile, mode: SepMode) {
-        val job = SepJob(System.currentTimeMillis(), f.path, f.title, mode, f.kind == FileKind.VIDEO)
-        _jobs.update { it + job }
-        ContextCompat.startForegroundService(c, Intent(c, SeparateService::class.java))
+        val i = Intent(c, SeparateService::class.java).setAction(SeparateService.ADD)
+            .putExtra("id", System.currentTimeMillis())
+            .putExtra("path", f.path).putExtra("title", f.title)
+            .putExtra("mode", mode.name).putExtra("video", f.kind == FileKind.VIDEO)
+        ContextCompat.startForegroundService(c, i)
     }
 
-    fun cancel(id: Long) {
-        cancelled.add(id)
-        _jobs.update { l -> l.map { if (it.id == id && !it.done) it.copy(done = true, error = "اتلغى") else it } }
+    fun cancel(c: Context, id: Long) {
+        ContextCompat.startForegroundService(c, Intent(c, SeparateService::class.java).setAction(SeparateService.CANCEL).putExtra("id", id))
     }
 
-    fun dismiss(id: Long) = _jobs.update { l -> l.filterNot { it.id == id } }
+    fun dismiss(id: Long) {
+        hidden.add(id)
+        _jobs.value = _jobs.value.filterNot { it.id == id }
+    }
 
-    internal fun next(): SepJob? = _jobs.value.firstOrNull { !it.done }
+    /** Called about once a second while the app is open: refreshes the cards, and restarts stopped work. */
+    fun poll(c: Context) {
+        val all = SepStore.read(c)
+        _jobs.value = all.filterNot { it.id in hidden }
+        if (all.any { it.done && it.output != null && seenDone.add(it.id) }) Library.refresh()
+        val pending = all.any { !it.done }
+        if (pending && System.currentTimeMillis() - SepStore.lastBeat(c) > 30_000) {
+            // the worker isn't running (Android stopped it) → continue from the last finished part
+            SepStore.heartbeat(c)
+            runCatching { ContextCompat.startForegroundService(c, Intent(c, SeparateService::class.java).setAction(SeparateService.RESUME)) }
+        }
+    }
+}
 
-    private fun set(id: Long, f: (SepJob) -> SepJob) = _jobs.update { l -> l.map { if (it.id == id) f(it) else it } }
+/** Runs the separation in its own process, with a progress notification. */
+class SeparateService : Service() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var worker: Job? = null
+    private val cancelled = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+    private val lock = Any()
+    private val nm by lazy { getSystemService(NotificationManager::class.java) }
 
-    // ------------------------------------------------------------ the work
+    override fun onBind(intent: Intent?): IBinder? = null
 
-    internal suspend fun process(c: Context, job: SepJob) {
-        val work = File(c.cacheDir, "separate").apply { deleteRecursively(); mkdirs() }
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "فصل الموسيقى", NotificationManager.IMPORTANCE_LOW))
         try {
-            val model = ensureModel(c, job)
+            val first = notification("بيبدأ…", -1f)
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTE_ID, first, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            else startForeground(NOTE_ID, first)
+        } catch (e: Exception) {
+            // Android refused to start in the background — the app restarts it next time it's opened
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        when (intent?.action) {
+            ADD -> {
+                val job = SepJob(
+                    id = intent.getLongExtra("id", System.currentTimeMillis()),
+                    path = intent.getStringExtra("path") ?: "",
+                    title = intent.getStringExtra("title") ?: "",
+                    mode = runCatching { SepMode.valueOf(intent.getStringExtra("mode") ?: "") }.getOrDefault(SepMode.VOICE),
+                    isVideo = intent.getBooleanExtra("video", false),
+                )
+                edit { it + job }
+            }
+            CANCEL -> {
+                val id = intent.getLongExtra("id", -1)
+                cancelled.add(id)
+                edit { l -> l.map { if (it.id == id && !it.done) it.copy(done = true, error = "اتلغى") else it } }
+            }
+        }
+        if (worker?.isActive != true) worker = scope.launch { work() }
+        return START_STICKY
+    }
+
+    private fun edit(f: (List<SepJob>) -> List<SepJob>) = synchronized(lock) { SepStore.write(this, f(SepStore.read(this))) }
+    private fun set(id: Long, f: (SepJob) -> SepJob) = edit { l -> l.map { if (it.id == id) f(it) else it } }
+    private fun get(id: Long) = SepStore.read(this).firstOrNull { it.id == id }
+
+    private suspend fun work() {
+        val beat = scope.launch { while (isActive) { SepStore.heartbeat(this@SeparateService); delay(5_000) } }
+        while (true) {
+            val job = SepStore.read(this).firstOrNull { !it.done } ?: break
+            process(job)
+            get(job.id)?.let { done ->
+                if (done.output != null) nm.notify(job.id.toInt(), NotificationCompat.Builder(this, CHANNEL)
+                    .setSmallIcon(R.drawable.ic_stat)
+                    .setContentTitle("خلص: ${done.title} (${done.mode.label})")
+                    .setContentText("موجود في المكتبة")
+                    .setContentIntent(Notifications.openAppIntent(this, UiState.TAB_DOWNLOADS))
+                    .setAutoCancel(true)
+                    .build())
+            }
+        }
+        beat.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun progress(job: SepJob, state: String, p: Float, eta: Long = -1) {
+        set(job.id) { it.copy(state = state, progress = p, etaSec = eta) }
+        nm.notify(NOTE_ID, notification("${job.title} — $state", p))
+    }
+
+    private class CancelledByUser : Exception()
+
+    private fun check(job: SepJob) { if (job.id in cancelled) throw CancelledByUser() }
+
+    private suspend fun process(start: SepJob) {
+        val work = SepStore.workDir(this, start.id).apply { mkdirs() }
+        var job = start
+        try {
+            if (!File(job.path).exists()) throw IOException("الملف الأصلي اتمسح")
+            val model = ensureModel(job)
             check(job)
-            set(job.id) { it.copy(state = "بيجهّز الصوت…", progress = -1f) }
-            VideoExtractor.awaitReady()
+            withContext(Dispatchers.IO) {
+                // the bundled ffmpeg + its libraries (unpacked by the app; quick if already there)
+                com.yausername.youtubedl_android.YoutubeDL.getInstance().init(applicationContext)
+                com.yausername.ffmpeg.FFmpeg.getInstance().init(applicationContext)
+            }
             val raw = File(work, "in.raw")
-            ffmpeg(c, listOf("-y", "-i", job.path, "-vn", "-ac", "2", "-ar", "44100", "-f", "f32le", raw.path), "تعذر قراءة الصوت من الملف")
+            if (!job.decoded || !raw.exists()) {
+                progress(job, "بيجهّز الصوت…", -1f)
+                File(work, "out.raw").delete()
+                ffmpeg(listOf("-y", "-i", job.path, "-vn", "-ac", "2", "-ar", "44100", "-f", "f32le", raw.path), "تعذر قراءة الصوت من الملف")
+                set(job.id) { it.copy(decoded = true, nextChunk = 0) }
+                job = get(job.id) ?: return
+            }
             check(job)
 
             val outRaw = File(work, "out.raw")
             separate(model, raw, outRaw, job)
-            raw.delete()
             check(job)
 
-            set(job.id) { it.copy(state = "بيحفظ الملف…", progress = -1f, etaSec = -1) }
+            progress(job, "بيحفظ الملف…", -1f)
             val src = File(job.path)
             val dest: File = if (job.isVideo) {
                 val ext = if (src.extension.lowercase() == "mp4") "mp4" else "mkv"
                 val out = Library.uniqueFile("${job.title} (${job.mode.suffix}).$ext")
-                ffmpeg(c, listOf(
+                ffmpeg(listOf(
                     "-y", "-i", job.path, "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path,
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", out.path,
                 ), "تعذر حفظ الفيديو")
@@ -127,46 +246,43 @@ object Separator {
             } else {
                 val mp3 = Library.uniqueFile("${job.title} (${job.mode.suffix}).mp3")
                 try {
-                    ffmpeg(c, listOf("-y", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path, "-c:a", "libmp3lame", "-q:a", "2", mp3.path), "تعذر حفظ الصوت")
+                    ffmpeg(listOf("-y", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path, "-c:a", "libmp3lame", "-q:a", "2", mp3.path), "تعذر حفظ الصوت")
                     mp3
                 } catch (e: IOException) {
+                    mp3.delete()
                     val m4a = Library.uniqueFile("${job.title} (${job.mode.suffix}).m4a")
-                    ffmpeg(c, listOf("-y", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path, "-c:a", "aac", "-b:a", "256k", m4a.path), "تعذر حفظ الصوت")
+                    ffmpeg(listOf("-y", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path, "-c:a", "aac", "-b:a", "256k", m4a.path), "تعذر حفظ الصوت")
                     m4a
                 }
             }
-            Library.refresh()
-            set(job.id) { it.copy(done = true, state = "خلص ✅", progress = 1f, output = dest.absolutePath) }
+            set(job.id) { it.copy(done = true, state = "خلص ✅", progress = 1f, etaSec = -1, output = dest.absolutePath) }
+            work.deleteRecursively()
         } catch (e: CancelledByUser) {
-            set(job.id) { it.copy(done = true, error = "اتلغى") }
+            work.deleteRecursively()
         } catch (e: Throwable) {
             set(job.id) { it.copy(done = true, error = e.message ?: "حصل خطأ") }
-        } finally {
             work.deleteRecursively()
+        } finally {
             cancelled.remove(job.id)
         }
     }
 
-    private class CancelledByUser : Exception()
-
-    private suspend fun check(job: SepJob) {
-        if (job.id in cancelled || !coroutineContext.isActive) throw CancelledByUser()
-    }
-
     /** Downloads the AI model the first time (about 67 MB). */
-    private suspend fun ensureModel(c: Context, job: SepJob): File {
-        val dir = File(c.filesDir, "models").apply { mkdirs() }
+    private fun ensureModel(job: SepJob): File {
+        val dir = File(filesDir, "models").apply { mkdirs() }
         val f = File(dir, MODEL_NAME)
         if (f.exists() && f.length() > MODEL_MIN_SIZE) return f
+        val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
         var last: Exception? = null
         for (url in MODEL_URLS) {
             val tmp = File(dir, "$MODEL_NAME.part")
             try {
-                Downloader.client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                client.newCall(Request.Builder().url(url).build()).execute().use { r ->
                     if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
                     val body = r.body ?: throw IOException("ملف فاضي")
                     val total = body.contentLength()
                     var done = 0L
+                    var shown = 0L
                     body.byteStream().use { input ->
                         tmp.outputStream().use { out ->
                             val buf = ByteArray(256 * 1024)
@@ -176,7 +292,10 @@ object Separator {
                                 out.write(buf, 0, n)
                                 done += n
                                 check(job)
-                                if (total > 0) set(job.id) { it.copy(state = "بينزّل موديل الذكاء الاصطناعي (مرة واحدة بس)…", progress = done.toFloat() / total) }
+                                if (total > 0 && done - shown > 2_000_000) {
+                                    shown = done
+                                    progress(job, "بينزّل موديل الذكاء الاصطناعي (مرة واحدة بس)…", done.toFloat() / total)
+                                }
                             }
                         }
                     }
@@ -193,11 +312,18 @@ object Separator {
         throw IOException("مقدرتش أنزّل الموديل: ${last?.message ?: ""}")
     }
 
-    private suspend fun separate(model: File, raw: File, outRaw: File, job: SepJob) {
+    private fun separate(model: File, raw: File, outRaw: File, job: SepJob) {
         val frames = raw.length() / 8   // stereo float32
         if (frames <= 0) throw IOException("الملف مفيهوش صوت")
         val chunks = ((frames + MdxDsp.GEN - 1) / MdxDsp.GEN).toInt()
+        // continue after an interruption: keep only whole finished parts
+        val chunkBytes = MdxDsp.GEN.toLong() * 8
+        val startChunk = minOf((if (outRaw.exists()) outRaw.length() / chunkBytes else 0L).toInt(), job.nextChunk, chunks)
+        RandomAccessFile(outRaw, "rw").use { it.setLength(startChunk * chunkBytes) }
+        if (startChunk >= chunks) return
+
         val env = OrtEnvironment.getEnvironment()
+        progress(job, "بيجهّز الذكاء الاصطناعي…", startChunk.toFloat() / chunks)
         val session = createSession(env, model)
         val dsp = MdxDsp()
         val n = MdxDsp.CHUNK
@@ -210,10 +336,10 @@ object Separator {
         val started = System.currentTimeMillis()
         try {
             RandomAccessFile(raw, "r").use { inFile ->
-                BufferedOutputStream(outRaw.outputStream(), 1 shl 20).use { out ->
-                    for (k in 0 until chunks) {
+                FileOutputStream(outRaw, true).use { out ->
+                    for (k in startChunk until chunks) {
                         check(job)
-                        // read CHUNK frames starting TRIM before this chunk's new part (zeros outside the song)
+                        // CHUNK frames starting TRIM before this part's new samples (zeros outside the song)
                         val start = k.toLong() * MdxDsp.GEN - MdxDsp.TRIM
                         java.util.Arrays.fill(l, 0f); java.util.Arrays.fill(r, 0f)
                         val from = maxOf(start, 0L)
@@ -244,9 +370,12 @@ object Separator {
                             else { writeBuf.putFloat(l[MdxDsp.TRIM + i] - vl); writeBuf.putFloat(r[MdxDsp.TRIM + i] - vr) }
                         }
                         out.write(writeBuf.array(), 0, count * 8)
+                        out.fd.sync()
+                        val doneParts = k + 1 - startChunk
                         val elapsed = (System.currentTimeMillis() - started) / 1000.0
-                        val eta = (elapsed / (k + 1) * (chunks - k - 1)).toLong()
-                        set(job.id) { it.copy(state = "بيفصل الصوت عن الموسيقى… (${k + 1} من $chunks)", progress = (k + 1f) / chunks, etaSec = eta) }
+                        val eta = (elapsed / doneParts * (chunks - k - 1)).toLong()
+                        set(job.id) { it.copy(nextChunk = k + 1) }
+                        progress(job, "بيفصل الصوت عن الموسيقى… (${k + 1} من $chunks)", (k + 1f) / chunks, eta)
                     }
                 }
             }
@@ -269,11 +398,10 @@ object Separator {
         }
     }
 
-    // ------------------------------------------------------------ ffmpeg (the one bundled for yt-dlp)
-
-    private fun ffmpeg(c: Context, args: List<String>, error: String) {
-        val bin = File(c.applicationInfo.nativeLibraryDir, "libffmpeg.so")
-        val pkgs = File(c.noBackupFilesDir, "youtubedl-android/packages")
+    /** The ffmpeg bundled for yt-dlp. */
+    private fun ffmpeg(args: List<String>, error: String) {
+        val bin = File(applicationInfo.nativeLibraryDir, "libffmpeg.so")
+        val pkgs = File(noBackupFilesDir, "youtubedl-android/packages")
         val pb = ProcessBuilder(listOf(bin.path, "-nostdin", "-hide_banner", "-loglevel", "error") + args)
         pb.environment()["LD_LIBRARY_PATH"] = "${pkgs.path}/python/usr/lib:${pkgs.path}/ffmpeg/usr/lib"
         pb.redirectErrorStream(true)
@@ -281,50 +409,6 @@ object Separator {
         val log = p.inputStream.bufferedReader().readText()
         val code = p.waitFor()
         if (code != 0) throw IOException("$error (${log.lines().lastOrNull { it.isNotBlank() }?.take(160) ?: code})")
-    }
-}
-
-/** Runs the separation jobs in the background with a progress notification. */
-class SeparateService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var worker: Job? = null
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "فصل الموسيقى", NotificationManager.IMPORTANCE_LOW))
-        val first = notification("بيبدأ…", -1f)
-        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTE_ID, first, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        else startForeground(NOTE_ID, first)
-        if (worker?.isActive != true) worker = scope.launch {
-            // keep the notification in step with the job
-            val watcher = launch {
-                Separator.jobs.collect { list ->
-                    list.firstOrNull { !it.done }?.let { j ->
-                        nm.notify(NOTE_ID, notification("${j.title} — ${j.state}", j.progress))
-                    }
-                }
-            }
-            while (true) {
-                val job = Separator.next() ?: break
-                Separator.process(applicationContext, job)
-                val done = Separator.jobs.value.firstOrNull { it.id == job.id }
-                if (done?.error == null && done?.output != null) {
-                    nm.notify(job.id.toInt(), NotificationCompat.Builder(this@SeparateService, CHANNEL)
-                        .setSmallIcon(R.drawable.ic_stat)
-                        .setContentTitle("خلص: ${job.title} (${job.mode.label})")
-                        .setContentText("موجود في المكتبة")
-                        .setContentIntent(Notifications.openAppIntent(this@SeparateService, UiState.TAB_DOWNLOADS))
-                        .setAutoCancel(true)
-                        .build())
-                }
-            }
-            watcher.cancel()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        }
-        return START_NOT_STICKY
     }
 
     private fun notification(text: String, progress: Float) = NotificationCompat.Builder(this, CHANNEL)
@@ -343,7 +427,18 @@ class SeparateService : Service() {
     }
 
     companion object {
+        const val ADD = "com.ali.files.separate.ADD"
+        const val CANCEL = "com.ali.files.separate.CANCEL"
+        const val RESUME = "com.ali.files.separate.RESUME"
         private const val CHANNEL = "separate"
         private const val NOTE_ID = 7071
+        private val MODEL_URLS = listOf(
+            "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx",
+            "https://huggingface.co/huangjackson/Kim_Vocal_2/resolve/main/Kim_Vocal_2.onnx",
+        )
+        private const val MODEL_NAME = "Kim_Vocal_2.onnx"
+        private const val MODEL_MIN_SIZE = 60_000_000L
+        /** volume correction recommended for this model */
+        private const val COMPENSATE = 1.009f
     }
 }

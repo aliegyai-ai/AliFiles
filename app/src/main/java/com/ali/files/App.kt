@@ -2,6 +2,7 @@ package com.ali.files
 
 import android.app.Application
 import android.content.Context
+import android.os.Build
 import com.ali.files.download.Downloader
 import com.ali.files.download.VideoExtractor
 import com.ali.files.util.AppSettings
@@ -11,6 +12,11 @@ import com.ali.files.vault.Vault
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        // the «remove the music» worker runs in its own process and needs almost nothing from the app
+        if (Build.VERSION.SDK_INT >= 28 && Application.getProcessName().endsWith(":separate")) {
+            com.ali.files.library.Library.init(this)
+            return
+        }
         AppSettings.init(this)
         Notifications.createChannels(this)
         Vault.init(this)
