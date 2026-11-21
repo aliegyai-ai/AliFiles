@@ -51,22 +51,49 @@ object VideoExtractor {
             try {
                 YoutubeDL.getInstance().init(app)
                 FFmpeg.getInstance().init(app)
-                ready.complete(Unit)
             } catch (e: Throwable) {
                 ready.completeExceptionally(e)
                 return@launch
             }
-            // sites change constantly: keep yt-dlp fresh (every 2 days)
+            // The yt-dlp bundled in the library is old. YouTube now needs a version that can run
+            // its JavaScript challenges (2025.11.12+), so update right away before the first use.
             val sp = app.getSharedPreferences("ytdlp", Context.MODE_PRIVATE)
+            if (!supportsJsRuntime()) {
+                if (runCatching { doUpdate() }.isSuccess) sp.edit().putLong("lastUpdate", System.currentTimeMillis()).apply()
+            }
+            ready.complete(Unit)
+            // sites change constantly: keep yt-dlp fresh (every 2 days)
             if (System.currentTimeMillis() - sp.getLong("lastUpdate", 0) > 2 * 24 * 3600_000L) {
                 if (runCatching { update() }.isSuccess) sp.edit().putLong("lastUpdate", System.currentTimeMillis()).apply()
             }
         }
     }
 
+    /** yt-dlp version string like "2026.06.13", or null if it can't be read. */
+    private fun ytdlpVersion(): String? = runCatching { YoutubeDL.getInstance().version(app) }.getOrNull()
+
+    /** 2025.11.12 is the first yt-dlp that can use an external JavaScript runtime (needed for YouTube). */
+    private fun supportsJsRuntime(): Boolean = (ytdlpVersion() ?: "0") >= "2025.11.12"
+
+    /** QuickJS, shipped inside the APK as a native "library" so Android lets us run it. */
+    private val quickJs: File? get() = File(app.applicationInfo.nativeLibraryDir, "libqjs.so").takeIf { it.exists() }
+
+    /** Lets yt-dlp solve YouTube's JavaScript challenges with QuickJS — without it some qualities go missing. */
+    @Volatile private var jsBroken = false
+
+    private fun jsRuntimeOptions(req: YoutubeDLRequest) {
+        if (jsBroken) return
+        val qjs = quickJs ?: return
+        if (!supportsJsRuntime()) return
+        req.addOption("--js-runtimes", "quickjs:${qjs.absolutePath}")
+        req.addOption("--remote-components", "ejs:github")
+    }
+
+    private fun doUpdate() = YoutubeDL.getInstance().updateYoutubeDL(app)
+
     suspend fun update(): String = withContext(Dispatchers.IO) {
         ready.await()
-        val status = YoutubeDL.getInstance().updateYoutubeDL(app)
+        val status = doUpdate()
         val msg = when (status?.name) {
             "DONE" -> "اتحدث محرك الفيديو لآخر إصدار ✅"
             "ALREADY_UP_TO_DATE" -> "محرك الفيديو محدث أصلاً ✅"
@@ -96,15 +123,24 @@ object VideoExtractor {
 
     suspend fun info(r: VideoRequest): VideoMeta = withContext(Dispatchers.IO) {
         ready.await()
-        val req = YoutubeDLRequest(r.url)
-        req.addOption("--no-playlist")
-        headerOptions(req, r.headers)
+        fun request(withJs: Boolean) = YoutubeDLRequest(r.url).also { req ->
+            req.addOption("--no-playlist")
+            headerOptions(req, r.headers)
+            if (withJs) jsRuntimeOptions(req)
+        }
         val info = try {
-            YoutubeDL.getInstance().getInfo(req)
+            YoutubeDL.getInstance().getInfo(request(withJs = true))
         } catch (first: Exception) {
             // most failures are an outdated extractor: update once and retry
+            // (and without QuickJS, in case that was the part that failed)
             runCatching { update() }
-            YoutubeDL.getInstance().getInfo(req)
+            try {
+                YoutubeDL.getInstance().getInfo(request(withJs = true))
+            } catch (second: Exception) {
+                if (quickJs == null || jsBroken) throw second
+                // works without QuickJS → QuickJS is the problem on this phone; stop using it this session
+                YoutubeDL.getInstance().getInfo(request(withJs = false)).also { jsBroken = true }
+            }
         }
         val duration = (info.duration ?: 0).toLong()
         val formats = info.formats ?: arrayListOf()
@@ -228,6 +264,7 @@ object VideoExtractor {
             req.addOption("--merge-output-format", "mp4")
         }
         headerOptions(req, item.headers)
+        jsRuntimeOptions(req)
         // yt-dlp downloads the picture and the sound as two separate streams, and its percent restarts
         // from 0 for each one. Combine them into one steady progress bar: picture 0-85%, sound 85-100%.
         var stream = 0

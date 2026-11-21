@@ -20,6 +20,22 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      # QuickJS: the JavaScript engine yt-dlp needs for YouTube. Built for Android here and shipped
+      # inside the APK as libqjs.so (Android only allows running programs that come as native libraries).
+      - name: Build QuickJS for Android
+        continue-on-error: true
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          echo "NDK: $NDK"
+          git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs /tmp/qjs
+          cmake -S /tmp/qjs -B /tmp/qjs/build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29
+          cmake --build /tmp/qjs/build --target qjs_exe -j4
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp /tmp/qjs/build/qjs app/src/main/jniLibs/arm64-v8a/libqjs.so
+          "$NDK"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip app/src/main/jniLibs/arm64-v8a/libqjs.so || true
+          file app/src/main/jniLibs/arm64-v8a/libqjs.so; ls -la app/src/main/jniLibs/arm64-v8a/
       - name: Build
         run: |
           chmod +x gradlew

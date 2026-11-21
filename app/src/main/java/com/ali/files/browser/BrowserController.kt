@@ -66,6 +66,10 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     var lastVideoSrc: String = ""
     var lastVideoPage: String = ""
     val secure: Boolean get() = url.value.startsWith("https://")
+    /** true while the tab shows the app's own start page instead of a website */
+    val home = mutableStateOf(false)
+    /** small screenshot for the tab switcher */
+    val thumb = mutableStateOf<android.graphics.Bitmap?>(null)
 
     fun addMedia(u: String, kind: String) {
         if (media.size < 60 && media.none { it.url == u }) media.add(DetectedMedia(u, kind))
@@ -76,6 +80,9 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
  * Owns all browser tabs (WebViews). Lives as long as the activity; the activity handles
  * configuration changes itself so WebViews are not recreated on rotation.
  */
+/** Marks a tab that shows the start page (speed dial, clipboard link, recent downloads). */
+const val HOME = "about:home"
+
 class BrowserController(private val activity: Activity) {
     private val main = Handler(Looper.getMainLooper())
     private val docStartScript: Boolean by lazy {
@@ -109,22 +116,58 @@ class BrowserController(private val activity: Activity) {
         runCatching { bookmarks.addAll(json.decodeFromString<List<Bookmark>>(bookmarksFile.readText())) }
         runCatching { history.addAll(json.decodeFromString<List<HistoryEntry>>(historyFile.readText())) }
         val urls = runCatching { json.decodeFromString<List<String>>(sessionFile.readText()) }.getOrDefault(emptyList())
-        if (urls.isEmpty()) newTab(AppSettings.homeUrl()) else urls.forEach { newTab(it, select = false) }
+        if (urls.isEmpty()) newTab(HOME) else urls.forEach { newTab(it, select = false) }
         if (currentId.longValue < 0) tabs.firstOrNull()?.let { currentId.longValue = it.id }
     }
 
     // ------------------------------------------------------------ tabs
 
-    fun newTab(url: String? = AppSettings.homeUrl(), incognito: Boolean = false, select: Boolean = true): BrowserTab {
+    fun newTab(url: String? = HOME, incognito: Boolean = false, select: Boolean = true): BrowserTab {
         val tab = BrowserTab(nextId++, incognito)
         tab.webView = createWebView(tab)
         tabs.add(tab)
-        if (select || currentId.longValue < 0) currentId.longValue = tab.id
-        if (url != null) tab.webView.loadUrl(url)
+        if (select || currentId.longValue < 0) {
+            current?.let { captureThumb(it) }
+            currentId.longValue = tab.id
+        }
+        when (url) {
+            null -> {}
+            HOME -> tab.home.value = true
+            else -> tab.webView.loadUrl(url)
+        }
         return tab
     }
 
-    fun select(id: Long) { currentId.longValue = id }
+    fun select(id: Long) {
+        current?.let { captureThumb(it) }
+        currentId.longValue = id
+    }
+
+    /** Shows the start page in the current tab (the website stays behind it, so «back» returns to it). */
+    fun goHome() { current?.let { captureThumb(it); it.home.value = true } }
+
+    /** Leaves the start page and shows the website that was open in this tab, if any. */
+    fun leaveHome(tab: BrowserTab): Boolean {
+        if (!tab.home.value || tab.url.value.isBlank()) return false
+        tab.home.value = false
+        return true
+    }
+
+    /** Takes a small picture of the tab's page for the tab switcher. */
+    fun captureThumb(tab: BrowserTab) {
+        if (tab.home.value) { tab.thumb.value = null; return }
+        val v = tab.webView
+        if (v.width <= 0 || v.height <= 0) return
+        runCatching {
+            val scale = 0.35f
+            val bmp = android.graphics.Bitmap.createBitmap((v.width * scale).toInt(), (v.height * scale).toInt(), android.graphics.Bitmap.Config.RGB_565)
+            val canvas = android.graphics.Canvas(bmp)
+            canvas.scale(scale, scale)
+            canvas.translate(-v.scrollX.toFloat(), -v.scrollY.toFloat())
+            v.draw(canvas)
+            tab.thumb.value = bmp
+        }
+    }
 
     fun closeTab(id: Long) {
         val idx = tabs.indexOfFirst { it.id == id }
@@ -143,12 +186,15 @@ class BrowserController(private val activity: Activity) {
 
     fun load(input: String) {
         val tab = current ?: newTab(null)
-        tab.webView.loadUrl(toUrl(input))
+        val u = toUrl(input)
+        if (u == HOME) { tab.home.value = true; return }
+        tab.home.value = false
+        tab.webView.loadUrl(u)
     }
 
     fun toUrl(input: String): String {
         val t = input.trim()
-        if (t.isEmpty()) return AppSettings.homeUrl()
+        if (t.isEmpty()) return HOME
         if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(t) || t.startsWith("about:")) return t
         // local devices (router, inverter…) usually speak plain http
         if (Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?(/.*)?$").matches(t) || t.startsWith("localhost")) return "http://$t"
@@ -189,6 +235,14 @@ class BrowserController(private val activity: Activity) {
         runCatching { bookmarksFile.writeText(json.encodeToString(bookmarks.toList())) }
     }
 
+    /** Adds a site to the start page's speed dial (bookmarks). */
+    fun addBookmark(title: String, input: String) {
+        val u = toUrl(input)
+        if (u == HOME || bookmarks.any { it.url == u }) return
+        bookmarks.add(0, Bookmark(title.ifBlank { u.substringAfter("://").substringBefore('/') }, u))
+        runCatching { bookmarksFile.writeText(json.encodeToString(bookmarks.toList())) }
+    }
+
     fun removeBookmark(b: Bookmark) {
         bookmarks.remove(b)
         runCatching { bookmarksFile.writeText(json.encodeToString(bookmarks.toList())) }
@@ -216,7 +270,7 @@ class BrowserController(private val activity: Activity) {
     }
 
     fun saveSession() {
-        val urls = tabs.filter { !it.incognito }.map { it.url.value }.filter { it.startsWith("http") }
+        val urls = tabs.filter { !it.incognito }.map { if (it.home.value) HOME else it.url.value }.filter { it.startsWith("http") || it == HOME }
         runCatching { sessionFile.writeText(json.encodeToString(urls)) }
         CookieManager.getInstance().flush()
     }

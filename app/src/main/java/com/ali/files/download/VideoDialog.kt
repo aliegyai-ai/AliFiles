@@ -1,10 +1,13 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.ali.files.download
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.webkit.URLUtil
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +15,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,16 +26,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,8 +75,8 @@ private sealed interface Load {
 private const val AUDIO = -1
 
 /**
- * Reads the video's details, suggests audio-only or a video quality (with the reason),
- * and lets the user change it before downloading.
+ * Bottom sheet: reads the video's details, suggests audio-only or a video quality (with the reason),
+ * and lets the user change it before downloading. The whole sheet scrolls, so long quality lists fit.
  */
 @Composable
 fun VideoDialog(
@@ -88,129 +100,201 @@ fun VideoDialog(
         }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("تحميل فيديو") },
-        text = {
+    val scheme = MaterialTheme.colorScheme
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).navigationBarsPadding().padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             when (val s = state) {
-                Load.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Load.Loading -> Row(Modifier.fillMaxWidth().padding(vertical = 36.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(28.dp))
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(14.dp))
                     Text("بيقرا الفيديو والجودات المتاحة…")
                 }
-                is Load.Failed -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("معرفتش أقرا الفيديو من الرابط ده.")
-                    Text(s.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                    Text("لو الفيديو خاص أو محتاج تسجيل دخول، افتحه في متصفح التطبيق وسجّل دخول، وبعدين اضغط «حمّل الفيديو من الصفحة دي».", fontSize = 12.sp)
+
+                is Load.Failed -> {
+                    Text("معرفتش أقرا الفيديو", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(s.message, fontSize = 12.sp, color = scheme.error)
+                    Text("لو الفيديو خاص أو محتاج تسجيل دخول، افتحه في متصفح التطبيق وسجّل دخول، وبعدين دوس «حمّل الفيديو».", fontSize = 13.sp, color = scheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("إلغاء") }
+                        Button(onClick = {
+                            onFallback(DownloadRequest(req.url, URLUtil.guessFileName(req.url, null, null), headers = req.headers))
+                        }, modifier = Modifier.weight(1f)) { Text("حمّله كملف عادي") }
+                    }
                 }
-                // The dialog gives this slot whatever height is left on screen; the column scrolls inside it.
-                // (Before, heightIn came after verticalScroll, so the content was cut at 520dp and never scrolled.)
-                is Load.Ready -> Column(
-                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Thumb(s.meta.thumbnail)
-                    Text(s.meta.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOfNotNull(
-                            s.meta.uploader.takeIf { it.isNotBlank() },
-                            s.meta.durationSec.takeIf { it > 0 }?.let { formatDuration(it) },
-                            s.meta.site.takeIf { it.isNotBlank() },
-                        ).joinToString(" • "),
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+
+                is Load.Ready -> {
+                    // header: thumbnail + title
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Thumb(s.meta.thumbnail, Modifier.width(120.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(s.meta.title, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+                            Text(
+                                listOfNotNull(
+                                    s.meta.uploader.takeIf { it.isNotBlank() },
+                                    s.meta.durationSec.takeIf { it > 0 }?.let { formatDuration(it) },
+                                ).joinToString(" • "),
+                                fontSize = 12.sp, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+
                     // the suggestion
-                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp)) {
-                        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.Lightbulb, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Surface(color = scheme.primary.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Lightbulb, null, tint = scheme.primary, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
                             Column {
                                 Text(
                                     "مقترح: " + if (s.suggestion.audioOnly) "صوت بس (MP3)" else "فيديو ${s.suggestion.height ?: ""}p",
-                                    fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.Bold, color = scheme.primary, fontSize = 13.sp,
                                 )
-                                Text(s.suggestion.reason, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Text(s.suggestion.reason, fontSize = 12.sp, color = scheme.onSurfaceVariant)
                             }
                         }
                     }
-                    OptionRow(
-                        selected = choice == AUDIO, icon = true, label = "صوت بس — MP3",
+
+                    // audio only
+                    Text("صوت بس", fontSize = 13.sp, color = scheme.onSurfaceVariant)
+                    QualityCard(
+                        selected = choice == AUDIO, audio = true, label = "MP3",
                         size = s.meta.audio.approxBytes, recommended = s.suggestion.audioOnly,
+                        modifier = Modifier.fillMaxWidth(),
                     ) { choice = AUDIO }
-                    s.meta.heights.forEach { o ->
-                        val h = o.height ?: return@forEach
-                        OptionRow(
-                            selected = choice == h, icon = false, label = "فيديو ${h}p",
-                            size = o.approxBytes, recommended = !s.suggestion.audioOnly && s.suggestion.height == h,
-                        ) { choice = h }
+
+                    // video qualities, three per row
+                    if (s.meta.heights.isNotEmpty()) {
+                        Text("فيديو", fontSize = 13.sp, color = scheme.onSurfaceVariant)
+                        s.meta.heights.filter { it.height != null }.chunked(3).forEach { row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                row.forEach { o ->
+                                    val h = o.height!!
+                                    QualityCard(
+                                        selected = choice == h, audio = false, label = qualityName(h),
+                                        size = o.approxBytes, recommended = !s.suggestion.audioOnly && s.suggestion.height == h,
+                                        modifier = Modifier.weight(1f),
+                                    ) { choice = h }
+                                }
+                                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
                     }
-                    Text("الحفظ في:", fontSize = 13.sp)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = !toVault, onClick = { toVault = false }); Text("التنزيلات")
-                        Spacer(Modifier.width(12.dp))
-                        RadioButton(selected = toVault, onClick = { toVault = true }); Text("الخزنة 🔒")
+
+                    // where to save
+                    Text("الحفظ في", fontSize = 13.sp, color = scheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SaveChoice("التنزيلات", Icons.Filled.Folder, !toVault, Modifier.weight(1f)) { toVault = false }
+                        SaveChoice("الخزنة", Icons.Filled.Lock, toVault, Modifier.weight(1f)) { toVault = true }
                     }
+
+                    Spacer(Modifier.height(4.dp))
+                    Button(
+                        enabled = choice != null,
+                        onClick = {
+                            val c = choice ?: return@Button
+                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, toVault)
+                            onStarted(toVault)
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) {
+                        Icon(Icons.Filled.Download, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(startLabel(choice, s.meta), fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("إلغاء") }
                 }
             }
-        },
-        confirmButton = {
-            when (val s = state) {
-                is Load.Ready -> TextButton(enabled = choice != null, onClick = {
-                    val c = choice ?: return@TextButton
-                    Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, toVault)
-                    onStarted(toVault)
-                }) { Text("ابدأ التحميل") }
-                is Load.Failed -> TextButton(onClick = {
-                    onFallback(DownloadRequest(req.url, URLUtil.guessFileName(req.url, null, null), headers = req.headers))
-                }) { Text("حمّله كملف عادي") }
-                Load.Loading -> {}
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
-    )
+        }
+    }
+}
+
+private fun qualityName(h: Int) = when {
+    h >= 2160 -> "4K"
+    h >= 1440 -> "2K"
+    else -> "${h}p"
+}
+
+private fun startLabel(choice: Int?, meta: VideoMeta): String {
+    val size = when (choice) {
+        null -> 0L
+        AUDIO -> meta.audio.approxBytes
+        else -> meta.heights.firstOrNull { it.height == choice }?.approxBytes ?: 0L
+    }
+    val what = when (choice) { null -> ""; AUDIO -> " صوت MP3"; else -> " ${qualityName(choice)}" }
+    return "ابدأ التحميل$what" + if (size > 0) " (~${formatBytes(size)})" else ""
 }
 
 @Composable
-private fun OptionRow(selected: Boolean, icon: Boolean, label: String, size: Long, recommended: Boolean, onClick: () -> Unit) {
+private fun QualityCard(
+    selected: Boolean, audio: Boolean, label: String, size: Long, recommended: Boolean,
+    modifier: Modifier, onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) scheme.primary.copy(alpha = 0.16f) else scheme.surfaceContainerHigh,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) scheme.primary else scheme.outlineVariant),
+        modifier = modifier.heightIn(min = 64.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (audio) Icons.Filled.AudioFile else Icons.Filled.Movie, null, Modifier.size(16.dp), tint = if (selected) scheme.primary else scheme.onSurfaceVariant)
+                Spacer(Modifier.width(4.dp))
+                Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) scheme.primary else scheme.onSurface)
+            }
+            Text(
+                when {
+                    recommended && size > 0 -> "⭐ ~${formatBytes(size)}"
+                    recommended -> "⭐ المقترح"
+                    size > 0 -> "~${formatBytes(size)}"
+                    else -> " "
+                },
+                fontSize = 11.sp, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SaveChoice(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
-        color = if (selected) scheme.primaryContainer else scheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.fillMaxWidth(),
+        color = if (selected) scheme.primary.copy(alpha = 0.16f) else scheme.surfaceContainerHigh,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) scheme.primary else scheme.outlineVariant),
+        modifier = modifier.height(46.dp),
     ) {
-        Row(Modifier.heightIn(min = 52.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (icon) Icons.Filled.AudioFile else Icons.Filled.Movie, null, Modifier.size(22.dp),
-                tint = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(label, fontWeight = if (selected || recommended) FontWeight.Bold else FontWeight.Normal)
-                if (recommended) Text("⭐ المقترح", fontSize = 11.sp, color = scheme.primary)
-            }
-            if (size > 0) Text("~${formatBytes(size)}", fontSize = 12.sp, color = scheme.onSurfaceVariant)
-            RadioButton(selected = selected, onClick = onClick)
+        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(18.dp), tint = if (selected) scheme.primary else scheme.onSurfaceVariant)
+            Spacer(Modifier.width(6.dp))
+            Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
         }
     }
 }
 
 @Composable
-private fun Thumb(url: String?) {
+private fun Thumb(url: String?, modifier: Modifier) {
     val bmp by produceState<Bitmap?>(null, url) {
         if (url != null) {
             value = withContext(Dispatchers.IO) {
-            runCatching {
-                Downloader.client.newCall(Request.Builder().url(url).build()).execute().use { r ->
-                    val b = r.body?.bytes() ?: return@use null
-                    BitmapFactory.decodeByteArray(b, 0, b.size)
-                }
-            }.getOrNull()
+                runCatching {
+                    Downloader.client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                        val b = r.body?.bytes() ?: return@use null
+                        BitmapFactory.decodeByteArray(b, 0, b.size)
+                    }
+                }.getOrNull()
             }
         }
     }
-    val b = bmp ?: return
-    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))) {
-        Image(b.asImageBitmap(), null, Modifier.fillMaxWidth().aspectRatio(16f / 9f), contentScale = ContentScale.Crop)
+    Box(modifier.aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+        val b = bmp
+        if (b != null) Image(b.asImageBitmap(), null, Modifier.fillMaxWidth().aspectRatio(16f / 9f), contentScale = ContentScale.Crop)
+        else Icon(Icons.Filled.Movie, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
