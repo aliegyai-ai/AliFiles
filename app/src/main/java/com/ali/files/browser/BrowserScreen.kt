@@ -129,6 +129,7 @@ import com.ali.files.download.Downloader
 import com.ali.files.download.VideoExtractor
 import com.ali.files.download.VideoRequest
 import com.ali.files.ui.UiState
+import com.ali.files.util.AppSettings
 import com.ali.files.util.formatBytes
 import java.util.Calendar
 
@@ -181,12 +182,12 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
                         }
                     },
                 )
-                // floating gold download button: shows when the page has a video
+                // optional floating download button (off by default — the toolbar icon does the same job)
                 val videoSite = tab?.url?.value?.let { VideoExtractor.isVideoPage(it) } == true
                 val found = tab?.media?.size ?: 0
-                if (tab != null && (tab.playing.value || videoSite || found > 0)) {
+                if (AppSettings.floatingDownload.value && tab != null && (tab.playing.value || videoSite || found > 0)) {
                     ExtendedFloatingActionButton(
-                        onClick = { if (!videoSite && !tab.playing.value && found > 1) { c.sniffDom(tab); showMedia = true } else c.downloadVideo(tab) },
+                        onClick = { downloadAction(c, tab) { showMedia = true } },
                         icon = { Icon(Icons.Filled.Download, null) },
                         text = {
                             Text("حمّل الفيديو", fontWeight = FontWeight.Bold)
@@ -228,6 +229,18 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع")
             }
             AddressField(c, tab, Modifier.weight(1f)) { focus.clearFocus() }
+            // download icon: grey when nothing to download, gold with a count when the page has a video
+            val videoSite = !home && tab?.url?.value?.let { VideoExtractor.isVideoPage(it) } == true
+            val found = if (home) 0 else tab?.media?.size ?: 0
+            val hasVideo = videoSite || found > 0 || (!home && tab?.playing?.value == true)
+            IconButton(enabled = !home && tab != null, onClick = { tab?.let { t -> downloadAction(c, t) { showMedia = true } } }) {
+                BadgedBox(badge = { if (found > 0) Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text("$found") } }) {
+                    Icon(
+                        Icons.Filled.Download, "حمّل الفيديو",
+                        tint = if (hasVideo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (home) 0.4f else 1f),
+                    )
+                }
+            }
             IconButton(onClick = { tab?.let { c.captureThumb(it) }; showTabs = true }) {
                 Surface(
                     shape = RoundedCornerShape(7.dp),
@@ -303,6 +316,19 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
                 }
             },
         )
+    }
+}
+
+/**
+ * What the download button does: video sites and a playing video go to yt-dlp; a page with several
+ * caught media files opens the list to pick from; anything else scans the page and opens the list.
+ */
+private fun downloadAction(c: BrowserController, tab: BrowserTab, openMedia: () -> Unit) {
+    val videoSite = VideoExtractor.isVideoPage(tab.url.value)
+    when {
+        videoSite || tab.playing.value -> c.downloadVideo(tab)
+        tab.media.size == 1 -> c.requestDownload(tab.media.first().url, tab)
+        else -> { c.sniffDom(tab); openMedia() }
     }
 }
 

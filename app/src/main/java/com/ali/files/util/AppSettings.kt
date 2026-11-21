@@ -16,6 +16,8 @@ object AppSettings {
     val searchEngine = mutableStateOf("google")
     val clipboardDetect = mutableStateOf(true)
     val biometric = mutableStateOf(true)
+    /** the big floating «download video» button over pages (off: use the toolbar icon) */
+    val floatingDownload = mutableStateOf(false)
 
     @Volatile var adBlockFast = true
         private set
@@ -29,6 +31,7 @@ object AppSettings {
         searchEngine.value = sp.getString("searchEngine", "google") ?: "google"
         clipboardDetect.value = sp.getBoolean("clipboardDetect", true)
         biometric.value = sp.getBoolean("biometric", true)
+        floatingDownload.value = sp.getBoolean("floatingDownload", false)
     }
 
     fun setThreads(v: Int) { threads.intValue = v; sp.edit().putInt("threads", v).apply() }
@@ -36,6 +39,7 @@ object AppSettings {
     fun setAdBlock(v: Boolean) { adBlock.value = v; adBlockFast = v; sp.edit().putBoolean("adBlock", v).apply() }
     fun setSearchEngine(v: String) { searchEngine.value = v; sp.edit().putString("searchEngine", v).apply() }
     fun setClipboardDetect(v: Boolean) { clipboardDetect.value = v; sp.edit().putBoolean("clipboardDetect", v).apply() }
+    fun setFloatingDownload(v: Boolean) { floatingDownload.value = v; sp.edit().putBoolean("floatingDownload", v).apply() }
     fun setBiometric(v: Boolean) { biometric.value = v; sp.edit().putBoolean("biometric", v).apply() }
 
     var lastClip: String?
