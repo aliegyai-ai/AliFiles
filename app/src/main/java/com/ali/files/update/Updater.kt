@@ -48,6 +48,16 @@ object Updater {
         return p.longVersionCode to (p.versionName ?: "")
     }
 
+    @Volatile private var lastAutoCheck = 0L
+
+    /** At most one automatic check every 10 minutes (each time the app is opened). */
+    fun shouldAutoCheck(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoCheck < 10 * 60_000L) return false
+        lastAutoCheck = now
+        return true
+    }
+
     suspend fun check(c: Context, manual: Boolean = false) = withContext(Dispatchers.IO) {
         val s = _state.value
         if (s is UpdateState.Checking || s is UpdateState.Downloading) return@withContext

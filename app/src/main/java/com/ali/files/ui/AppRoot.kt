@@ -40,6 +40,8 @@ import com.ali.files.download.VideoRequest
 import com.ali.files.vault.ImportSharedDialog
 import com.ali.files.vault.VaultScreen
 import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,8 +57,14 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     val tab = ui.tab.intValue
     val ctx = LocalContext.current
     var autoUpdateHidden by remember { mutableStateOf(false) }
-    // look for a newer version on GitHub once per app start
-    LaunchedEffect(Unit) { Updater.check(ctx.applicationContext) }
+    // Look for a newer version every time the app comes to the screen — not only on a cold start,
+    // because Android usually keeps the app alive in the background and just brings it back.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        if (Updater.shouldAutoCheck()) {
+            autoUpdateHidden = false
+            scope.launch { Updater.check(ctx.applicationContext) }
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(ui.snackbar) },
