@@ -25,6 +25,8 @@ data class DownloadItem(
     val error: String? = null,
     val savedUri: String? = null,
     val savedInVault: Boolean = false,
+    /** where the file is in the app's library (new downloads stay inside the app) */
+    val libraryPath: String? = null,
     val resumable: Boolean = false,
     val segments: List<Segment> = emptyList(),
     val hls: Boolean = false,

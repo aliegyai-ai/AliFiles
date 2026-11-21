@@ -516,7 +516,7 @@ private fun MenuSheet(
                     add(MenuItem("وسائط الصفحة", Icons.Filled.VideoLibrary) { act(onMedia) })
                     add(MenuItem("وضع الكمبيوتر", Icons.Filled.Computer, selected = page.desktop.value) { act { c.setDesktop(page, !page.desktop.value) } })
                 }
-                add(MenuItem("التحميلات", Icons.Filled.Download) { act { onOpenApp(UiState.TAB_DOWNLOADS) } })
+                add(MenuItem("المكتبة", Icons.Filled.VideoLibrary) { act { onOpenApp(UiState.TAB_DOWNLOADS) } })
                 add(MenuItem("الخزنة", Icons.Filled.Lock) { act { onOpenApp(UiState.TAB_VAULT) } })
                 add(MenuItem("الإعدادات", Icons.Filled.Settings) { act { onOpenApp(UiState.TAB_SETTINGS) } })
             }

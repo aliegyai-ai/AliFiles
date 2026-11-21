@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
@@ -70,6 +73,8 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         snackbarHost = { SnackbarHost(ui.snackbar) },
         bottomBar = {
             // the browser has its own slim toolbar + menu, so the app bar only shows on the other screens
+            Column {
+            com.ali.files.player.MiniPlayer()
             if (!browser.fullscreen.value && tab != UiState.TAB_BROWSER) NavigationBar {
                 NavigationBarItem(
                     selected = tab == UiState.TAB_BROWSER, onClick = { ui.tab.intValue = UiState.TAB_BROWSER },
@@ -78,9 +83,9 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                 NavigationBarItem(
                     selected = tab == UiState.TAB_DOWNLOADS, onClick = { ui.tab.intValue = UiState.TAB_DOWNLOADS },
                     icon = {
-                        BadgedBox(badge = { if (activeCount > 0) Badge { Text("$activeCount") } }) { Icon(Icons.Filled.Download, null) }
+                        BadgedBox(badge = { if (activeCount > 0) Badge { Text("$activeCount") } }) { Icon(Icons.Filled.VideoLibrary, null) }
                     },
-                    label = { Text("التحميلات") },
+                    label = { Text("المكتبة") },
                 )
                 NavigationBarItem(
                     selected = tab == UiState.TAB_VAULT, onClick = { ui.tab.intValue = UiState.TAB_VAULT },
@@ -91,6 +96,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                     icon = { Icon(Icons.Filled.Settings, null) }, label = { Text("الإعدادات") },
                 )
             }
+            }
         },
     ) { pad ->
         // back from downloads / vault / settings returns to the browser instead of closing the app
@@ -98,7 +104,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).imePadding()) {
             when (tab) {
                 UiState.TAB_BROWSER -> BrowserScreen(browser, ui)
-                UiState.TAB_DOWNLOADS -> DownloadsScreen(
+                UiState.TAB_DOWNLOADS -> com.ali.files.library.LibraryTab(
                     onRequest = { r ->
                         if (MediaSniffer.kind(r.url) == null && !Downloader.isHlsUrl(r.url, null)) ui.videoRequest.value = VideoRequest(r.url)
                         else ui.pendingDownload.value = r
@@ -177,5 +183,14 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                 }
             }
         }
+    }
+
+    // ---------------------------------------------- players (on top of everything)
+    when {
+        com.ali.files.player.PlayerHub.inPip.value -> Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+            com.ali.files.player.VideoSurface(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT, Modifier.fillMaxSize())
+        }
+        com.ali.files.player.PlayerHub.videoOpen.value -> com.ali.files.player.VideoPlayerScreen(onPip = { (ctx as? com.ali.files.MainActivity)?.enterPip() })
+        com.ali.files.player.PlayerHub.musicOpen.value -> com.ali.files.player.NowPlayingScreen()
     }
 }

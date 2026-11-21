@@ -6,7 +6,7 @@ plugins {
 }
 
 // bump this for a big release; the build number from GitHub is added after it
-val appVersion = "1.5"
+val appVersion = "1.6"
 
 android {
     namespace = "com.ali.files"
@@ -80,6 +80,14 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.webkit:webkit:1.12.1")
+
+    // built-in music & video player
+    val media3 = "1.5.1"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-session:$media3")
+    implementation("androidx.media3:media3-datasource-okhttp:$media3")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.2")
