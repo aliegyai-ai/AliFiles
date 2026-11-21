@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.ali.files.browser
 
@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -236,8 +238,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
 
     // While typing in a page (e.g. YouTube search) the toolbar hides and stays hidden: showing/hiding it
     // resized the page under the keyboard, and sites like YouTube then drew their filter row over the suggestions.
-    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) { c.imeOpen = imeVisible }
     val typingInPage = imeVisible && !c.addressFocused.value && !findOpen
     val barsVisible = !typingInPage && (home || !c.barsHidden.value || findOpen)
