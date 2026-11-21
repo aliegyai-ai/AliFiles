@@ -172,6 +172,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         if (clip != null) {
             val direct = MediaSniffer.kind(clip) != null
             val video = VideoExtractor.isVideoPage(clip)
+            if (video) VideoExtractor.prefetch(VideoRequest(clip))  // start reading it while the snackbar shows
             val r = ui.snackbar.showSnackbar(
                 "لقيت لينك منسوخ: ${clip.take(48)}",
                 actionLabel = if (direct || video) "حمّله" else "افتحه",

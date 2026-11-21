@@ -419,7 +419,22 @@ class BrowserController(private val activity: Activity) {
     fun requestVideo(tab: BrowserTab, page: String? = null) {
         val url = page?.takeIf { it.startsWith("http") } ?: tab.url.value
         if (!url.startsWith("http")) return
-        onVideoRequest?.invoke(com.ali.files.download.VideoRequest(url, headersFor(url, tab.webView.settings.userAgentString, null)))
+        onVideoRequest?.invoke(videoRequestFor(tab, url))
+    }
+
+    /** What we know about the video from the page itself (title, YouTube picture) + the login cookies. */
+    private fun videoRequestFor(tab: BrowserTab, url: String) = com.ali.files.download.VideoRequest(
+        url, headersFor(url, tab.webView.settings.userAgentString, null),
+        title = tab.title.value.removeSuffix(" - YouTube").takeIf { it.isNotBlank() && url == tab.url.value },
+        thumbnail = com.ali.files.download.VideoExtractor.youtubeId(url)?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
+    )
+
+    /** On a video page, start reading its qualities after a moment, so the download sheet opens ready. */
+    private fun schedulePrefetch(tab: BrowserTab, url: String) {
+        if (tab.incognito || !com.ali.files.download.VideoExtractor.isSingleVideoPage(url)) return
+        main.postDelayed({
+            if (tab.url.value == url && tabs.contains(tab)) com.ali.files.download.VideoExtractor.prefetch(videoRequestFor(tab, url))
+        }, 1500)
     }
 
     /** A ⬇ button on a video (or the floating one) was tapped. */
@@ -553,7 +568,7 @@ class BrowserController(private val activity: Activity) {
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
-                if (url != null) tab.url.value = url
+                if (url != null) { tab.url.value = url; schedulePrefetch(tab, url) }
                 tab.canBack.value = view.canGoBack()
                 tab.canForward.value = view.canGoForward()
             }
