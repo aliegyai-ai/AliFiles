@@ -113,6 +113,9 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         Section("المتصفح")
         SwitchRow("مانع الإعلانات والنوافذ المنبثقة", "بيقفل شبكات الإعلانات والتتبع", AppSettings.adBlock.value) { AppSettings.setAdBlock(it) }
         SwitchRow("زرار التحميل العايم فوق الصفحة", "مقفول: استخدم أيقونة التحميل في الشريط اللي تحت", AppSettings.floatingDownload.value) { AppSettings.setFloatingDownload(it) }
+        if (biometricAvailable(ctx)) {
+            SwitchRow("قفل التصفح الخفي بالبصمة", "يطلب البصمة كل ما تفتح التصفح الخفي", AppSettings.privateLock.value) { AppSettings.setPrivateLock(it) }
+        }
         SwitchRow("التقاط الروابط من الحافظة", "لما تنسخ لينك يعرض عليك تحمّله", AppSettings.clipboardDetect.value) { AppSettings.setClipboardDetect(it) }
         Text("محرك البحث", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         listOf("google" to "Google", "ddg" to "DuckDuckGo", "bing" to "Bing").forEach { (key, label) ->

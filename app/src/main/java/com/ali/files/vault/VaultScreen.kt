@@ -125,14 +125,14 @@ fun biometricAvailable(c: Context): Boolean =
         BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
     ) == BiometricManager.BIOMETRIC_SUCCESS
 
-fun showBiometric(act: FragmentActivity, onOk: () -> Unit) {
+fun showBiometric(act: FragmentActivity, title: String = "فتح الخزنة", negative: String = "استخدم الرمز", onOk: () -> Unit) {
     val prompt = BiometricPrompt(act, ContextCompat.getMainExecutor(act), object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { onOk() }
     })
     val info = BiometricPrompt.PromptInfo.Builder()
-        .setTitle("فتح الخزنة")
+        .setTitle(title)
         .setSubtitle("حط صباعك على الحساس")
-        .setNegativeButtonText("استخدم الرمز")
+        .setNegativeButtonText(negative)
         .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK)
         .build()
     runCatching { prompt.authenticate(info) }

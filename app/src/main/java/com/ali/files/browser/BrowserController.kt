@@ -85,6 +85,7 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
  */
 /** Marks a tab that shows the start page (speed dial, clipboard link, recent downloads). */
 const val HOME = "about:home"
+private const val PRIVATE_PROFILE = "private"
 
 class BrowserController(private val activity: Activity) {
     private val main = Handler(Looper.getMainLooper())
@@ -100,6 +101,70 @@ class BrowserController(private val activity: Activity) {
     val barsHidden = mutableStateOf(false)
     val currentId = mutableLongStateOf(-1L)
     val current: BrowserTab? get() = tabs.firstOrNull { it.id == currentId.longValue }
+
+    // ------------------------------------------------------------ private (incognito) space
+    /** true while the user is in the private space: its own tabs, purple look, nothing saved */
+    val privateMode = mutableStateOf(false)
+    /** the tabs of the space being shown (normal or private) */
+    val visibleTabs: List<BrowserTab> get() = tabs.filter { it.incognito == privateMode.value }
+    private var lastNormalId = -1L
+    private var lastPrivateId = -1L
+
+    /** Private tabs get their own WebView profile (own cookies, storage, cache) when the phone supports it. */
+    private val profilesSupported: Boolean by lazy {
+        runCatching { androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE) }.getOrDefault(false)
+    }
+
+    fun cookieManagerFor(tab: BrowserTab?): CookieManager =
+        if (tab?.incognito == true && profilesSupported)
+            runCatching { androidx.webkit.ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE).cookieManager }.getOrDefault(CookieManager.getInstance())
+        else CookieManager.getInstance()
+
+    fun enterPrivate() {
+        if (privateMode.value) return
+        current?.let { captureThumb(it); lastNormalId = it.id }
+        privateMode.value = true
+        val t = tabs.firstOrNull { it.incognito && it.id == lastPrivateId } ?: tabs.lastOrNull { it.incognito }
+        if (t != null) currentId.longValue = t.id else newTab(HOME, incognito = true)
+        barsHidden.value = false
+    }
+
+    /** Back to normal tabs; the private tabs stay open (until [closePrivate]). */
+    fun exitPrivate() {
+        if (!privateMode.value) return
+        current?.let { captureThumb(it); lastPrivateId = it.id }
+        privateMode.value = false
+        val t = tabs.firstOrNull { !it.incognito && it.id == lastNormalId } ?: tabs.lastOrNull { !it.incognito }
+        if (t != null) currentId.longValue = t.id else newTab(HOME)
+        barsHidden.value = false
+    }
+
+    /** Closes every private tab and wipes everything they left behind (cookies, storage, cache). */
+    fun closePrivate() {
+        val wasPrivate = privateMode.value
+        tabs.filter { it.incognito }.forEach { t ->
+            tabs.remove(t)
+            (t.webView.parent as? ViewGroup)?.removeView(t.webView)
+            t.webView.stopLoading()
+            t.webView.clearCache(true)
+            t.webView.clearFormData()
+            t.webView.clearHistory()
+            t.webView.destroy()
+        }
+        lastPrivateId = -1L
+        if (wasPrivate) {
+            privateMode.value = false
+            val t = tabs.firstOrNull { it.id == lastNormalId } ?: tabs.lastOrNull()
+            if (t != null) currentId.longValue = t.id else newTab(HOME)
+        }
+        // the profile can only be deleted once its WebViews are really gone
+        main.postDelayed({ wipePrivateProfile() }, 500)
+    }
+
+    private fun wipePrivateProfile() {
+        if (!profilesSupported || tabs.any { it.incognito }) return
+        runCatching { androidx.webkit.ProfileStore.getInstance().deleteProfile(PRIVATE_PROFILE) }
+    }
 
     val bookmarks = mutableStateListOf<Bookmark>()
     val history = mutableStateListOf<HistoryEntry>()
@@ -118,6 +183,8 @@ class BrowserController(private val activity: Activity) {
     private val sessionFile get() = File(activity.filesDir, "session.json")
 
     init {
+        // anything a private session left on disk (app was killed while private tabs were open) goes first
+        wipePrivateProfile()
         runCatching { bookmarks.addAll(json.decodeFromString<List<Bookmark>>(bookmarksFile.readText())) }
         runCatching { history.addAll(json.decodeFromString<List<HistoryEntry>>(historyFile.readText())) }
         val urls = runCatching { json.decodeFromString<List<String>>(sessionFile.readText()) }.getOrDefault(emptyList())
@@ -133,7 +200,9 @@ class BrowserController(private val activity: Activity) {
         tabs.add(tab)
         if (select || currentId.longValue < 0) {
             current?.let { captureThumb(it) }
+            if (incognito && !privateMode.value) current?.let { lastNormalId = it.id }
             currentId.longValue = tab.id
+            privateMode.value = incognito
         }
         when (url) {
             null -> {}
@@ -146,6 +215,7 @@ class BrowserController(private val activity: Activity) {
     fun select(id: Long) {
         current?.let { captureThumb(it) }
         currentId.longValue = id
+        tabs.firstOrNull { it.id == id }?.let { privateMode.value = it.incognito }
         barsHidden.value = false
     }
 
@@ -182,12 +252,22 @@ class BrowserController(private val activity: Activity) {
         (tab.webView.parent as? ViewGroup)?.removeView(tab.webView)
         tab.webView.stopLoading()
         tab.webView.destroy()
-        if (tabs.isEmpty()) newTab()
-        else if (currentId.longValue == id) currentId.longValue = tabs[(idx - 1).coerceAtLeast(0)].id
+        val same = tabs.filter { it.incognito == tab.incognito }
+        if (currentId.longValue == id) {
+            when {
+                same.isNotEmpty() -> currentId.longValue = same.last().id
+                tab.incognito -> closePrivate() // last private tab closed → wipe and go back to normal tabs
+                else -> newTab(HOME)
+            }
+        } else if (tab.incognito && same.isEmpty()) {
+            main.postDelayed({ wipePrivateProfile() }, 500)
+        }
     }
 
+    /** Closes all tabs of the space being shown. */
     fun closeAll() {
-        tabs.toList().forEach { closeTab(it.id) }
+        if (privateMode.value) { closePrivate(); return }
+        tabs.filter { !it.incognito }.forEach { closeTab(it.id) }
     }
 
     fun load(input: String) {
@@ -310,7 +390,7 @@ class BrowserController(private val activity: Activity) {
 
     private fun headersFor(url: String, ua: String?, referer: String?): Map<String, String> = buildMap {
         put("User-Agent", ua ?: WebSettings.getDefaultUserAgent(activity))
-        CookieManager.getInstance().getCookie(url)?.let { put("Cookie", it) }
+        cookieManagerFor(current).getCookie(url)?.let { put("Cookie", it) }
         if (!referer.isNullOrBlank()) put("Referer", referer)
     }
 
@@ -375,7 +455,14 @@ class BrowserController(private val activity: Activity) {
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             if (tab.incognito) cacheMode = WebSettings.LOAD_NO_CACHE
         }
-        CookieManager.getInstance().setAcceptThirdPartyCookies(wv, !tab.incognito)
+        if (tab.incognito && profilesSupported) {
+            // separate cookie jar / storage / cache for private tabs; must be set before the first load
+            runCatching {
+                androidx.webkit.ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE)
+                androidx.webkit.WebViewCompat.setProfile(wv, PRIVATE_PROFILE)
+            }
+        }
+        cookieManagerFor(tab).setAcceptThirdPartyCookies(wv, !tab.incognito)
 
         // ⬇ buttons on every video (all frames, injected before the page's own scripts when supported)
         wv.addJavascriptInterface(VideoButtons.Bridge(
