@@ -103,8 +103,10 @@ fun VideoDialog(
                     Text(s.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                     Text("لو الفيديو خاص أو محتاج تسجيل دخول، افتحه في متصفح التطبيق وسجّل دخول، وبعدين اضغط «حمّل الفيديو من الصفحة دي».", fontSize = 12.sp)
                 }
+                // The dialog gives this slot whatever height is left on screen; the column scrolls inside it.
+                // (Before, heightIn came after verticalScroll, so the content was cut at 520dp and never scrolled.)
                 is Load.Ready -> Column(
-                    Modifier.verticalScroll(rememberScrollState()).heightIn(max = 520.dp),
+                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Thumb(s.meta.thumbnail)
@@ -170,16 +172,26 @@ fun VideoDialog(
 
 @Composable
 private fun OptionRow(selected: Boolean, icon: Boolean, label: String, size: Long, recommended: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) scheme.primaryContainer else scheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Icon(if (icon) Icons.Filled.AudioFile else Icons.Filled.Movie, null, Modifier.size(20.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(label, Modifier.weight(1f), fontWeight = if (recommended) FontWeight.Bold else FontWeight.Normal)
-        if (recommended) Text("⭐ ", fontSize = 12.sp)
-        if (size > 0) Text("~${formatBytes(size)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.heightIn(min = 52.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (icon) Icons.Filled.AudioFile else Icons.Filled.Movie, null, Modifier.size(22.dp),
+                tint = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(label, fontWeight = if (selected || recommended) FontWeight.Bold else FontWeight.Normal)
+                if (recommended) Text("⭐ المقترح", fontSize = 11.sp, color = scheme.primary)
+            }
+            if (size > 0) Text("~${formatBytes(size)}", fontSize = 12.sp, color = scheme.onSurfaceVariant)
+            RadioButton(selected = selected, onClick = onClick)
+        }
     }
 }
 

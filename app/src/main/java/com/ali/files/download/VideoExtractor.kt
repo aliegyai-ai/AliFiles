@@ -228,16 +228,38 @@ object VideoExtractor {
             req.addOption("--merge-output-format", "mp4")
         }
         headerOptions(req, item.headers)
+        // yt-dlp downloads the picture and the sound as two separate streams, and its percent restarts
+        // from 0 for each one. Combine them into one steady progress bar: picture 0-85%, sound 85-100%.
+        var stream = 0
+        var firstTotal = 0L
+        var lastTotal = -1L
         YoutubeDL.getInstance().execute(req, item.id.toString()) { progress, _, line ->
+            if (line.contains("[download] Destination:")) {
+                if (stream == 1 && lastTotal > 0) firstTotal = lastTotal
+                stream++
+            }
             val total = sizeRe.find(line)?.let { bytes(it.groupValues[1], it.groupValues[2]) } ?: -1L
+            if (total > 0) lastTotal = total
             val speed = speedRe.find(line)?.let { bytes(it.groupValues[1], it.groupValues[2]) } ?: 0L
+            val twoStreams = !item.audioOnly && stream >= 2
+            val p = progress.coerceIn(0f, 100f)
+            val overall = when {
+                item.audioOnly || stream <= 1 -> if (item.audioOnly) p else p * 0.85f
+                else -> 85f + p * 0.15f
+            }
+            val combinedTotal = when {
+                twoStreams && firstTotal > 0 && total > 0 -> firstTotal + total
+                stream <= 1 && total > 0 -> total
+                else -> -1L
+            }
             val note = when {
                 line.contains("[Merger]") -> "جاري دمج الصوت والصورة…"
                 line.contains("[ExtractAudio]") -> "جاري التحويل لـ MP3…"
-                line.contains("Destination") && line.contains(".f") -> null
-                else -> null
+                item.audioOnly -> "جاري تحميل الصوت…"
+                twoStreams -> "جاري تحميل الصوت (2/2)…"
+                else -> "جاري تحميل الصورة (1/2)…"
             }
-            onProgress(progress, total, speed, note)
+            onProgress(overall, combinedTotal, speed, note)
         }
         return dir.listFiles()
             ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && !it.name.contains(".temp") }
