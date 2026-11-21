@@ -62,13 +62,25 @@ private fun SwitchRow(title: String, sub: String?, checked: Boolean, onChange: (
 }
 
 @Composable
-fun SettingsScreen(browser: BrowserController) {
+fun SettingsScreen(browser: BrowserController, ui: UiState) {
     val ctx = LocalContext.current
     var changePin by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("الإعدادات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
+
+        val updScope = rememberCoroutineScope()
+        ListItem(
+            headlineContent = { Text("دوّر على تحديث للتطبيق") },
+            supportingContent = { Text("النسخة اللي عندك: ${com.ali.files.update.Updater.installedVersion(ctx).second}") },
+            leadingContent = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.SystemUpdate, null, tint = MaterialTheme.colorScheme.primary) },
+            modifier = Modifier.clickable {
+                ui.updateManual.value = true
+                updScope.launch { com.ali.files.update.Updater.check(ctx.applicationContext, manual = true) }
+            },
+        )
+        HorizontalDivider()
 
         Section("التحميل")
         Text("عدد الخيوط الافتراضي: ${AppSettings.threads.intValue}", Modifier.padding(horizontal = 16.dp))

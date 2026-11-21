@@ -40,6 +40,12 @@ import com.ali.files.download.VideoRequest
 import com.ali.files.vault.ImportSharedDialog
 import com.ali.files.vault.VaultScreen
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.ali.files.update.UpdateDialog
+import com.ali.files.update.Updater
 
 @Composable
 fun AppRoot(browser: BrowserController, ui: UiState) {
@@ -47,6 +53,10 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     val downloads by Downloader.items.collectAsState()
     val activeCount = downloads.count { it.active }
     val tab = ui.tab.intValue
+    val ctx = LocalContext.current
+    var autoUpdateHidden by remember { mutableStateOf(false) }
+    // look for a newer version on GitHub once per app start
+    LaunchedEffect(Unit) { Updater.check(ctx.applicationContext) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(ui.snackbar) },
@@ -85,7 +95,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                     onOpenVault = { ui.tab.intValue = UiState.TAB_VAULT },
                 )
                 UiState.TAB_VAULT -> VaultScreen()
-                else -> SettingsScreen(browser)
+                else -> SettingsScreen(browser, ui)
             }
         }
     }
@@ -120,6 +130,11 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
             },
             onFallback = { r -> ui.videoRequest.value = null; ui.pendingDownload.value = r },
         )
+    }
+
+    // ---------------------------------------------- app update (automatic at start, or from settings)
+    if (ui.updateManual.value || !autoUpdateHidden) {
+        UpdateDialog(manual = ui.updateManual.value) { ui.updateManual.value = false; autoUpdateHidden = true }
     }
 
     // ---------------------------------------------- files shared into the app

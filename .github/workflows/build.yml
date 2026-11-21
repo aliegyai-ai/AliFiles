@@ -40,7 +40,7 @@ jobs:
         run: |
           chmod +x gradlew
           set -o pipefail
-          ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log
+          ./gradlew assembleRelease -PbuildNumber=$((100 + ${{ github.run_number }})) --stacktrace 2>&1 | tee build.log
       - name: Report build errors as a commit comment
         if: failure()
         env:
@@ -57,10 +57,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          CODE=$((100 + ${{ github.run_number }}))
+          VERSION="$(grep -oP 'val appVersion = "\K[^"]+' app/build.gradle.kts).$CODE"
           cp app/build/outputs/apk/release/*.apk AliFiles.apk
+          # version.json is what the app reads to know an update is available
+          NOTES="$(git log -1 --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):' | sed '/^$/d')"
+          jq -n --argjson code "$CODE" --arg name "$VERSION" --arg notes "$NOTES" \
+            '{versionCode: $code, versionName: $name, notes: $notes}' > version.json
+          cat version.json
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest AliFiles.apk --title "ملفات علي $VERSION" --notes "$(git log -1 --pretty=%s)" --latest
+          gh release create latest AliFiles.apk version.json --title "ملفات علي $VERSION" --notes "$NOTES" --latest
       - name: Send APK to Telegram
         if: success() && env.TG_TOKEN != ''
         run: |

@@ -17,6 +17,8 @@ class UiState {
     val sharedUris = mutableStateOf<List<Uri>>(emptyList())
     val longPress = mutableStateOf<LongPress?>(null)
     val snackbar = SnackbarHostState()
+    /** «check for update» was tapped in settings */
+    val updateManual = mutableStateOf(false)
 
     companion object {
         const val TAB_BROWSER = 0

@@ -5,6 +5,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// bump this for a big release; the build number from GitHub is added after it
+val appVersion = "1.5"
+
 android {
     namespace = "com.ali.files"
     compileSdk = 35
@@ -13,17 +16,31 @@ android {
         applicationId = "com.ali.files"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4"
+        // CI passes -PbuildNumber so every build is newer than the last (needed for in-app updates)
+        val buildNo = (project.findProperty("buildNumber") as String?)?.toIntOrNull()
+        versionCode = buildNo ?: 5
+        versionName = if (buildNo != null) "$appVersion.$buildNo" else appVersion
         // both of Ali's devices (Galaxy A52s, MatePad 11.5 S) are 64-bit ARM; keeps the APK small
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 
+    // One fixed key for every build, so each new APK installs over the old one as an update
+    // (the debug key was random on every GitHub build, which made Android refuse updates).
+    signingConfigs {
+        create("ali") {
+            storeFile = file("alifiles.jks")
+            storePassword = "alifiles123"
+            keyAlias = "alifiles"
+            keyPassword = "alifiles123"
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
-            // signed with the debug key so the release APK installs directly on your phone
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("ali")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("ali")
         }
     }
     compileOptions {
