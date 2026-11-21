@@ -2,6 +2,8 @@ package com.ali.files.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -74,7 +76,7 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         ListItem(
             headlineContent = { Text("دوّر على تحديث للتطبيق") },
             supportingContent = { Text("النسخة اللي عندك: ${com.ali.files.update.Updater.installedVersion(ctx).second}") },
-            leadingContent = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.SystemUpdate, null, tint = MaterialTheme.colorScheme.primary) },
+            leadingContent = { androidx.compose.material3.Icon(Icons.Filled.SystemUpdate, null, tint = MaterialTheme.colorScheme.primary) },
             modifier = Modifier.clickable {
                 ui.updateManual.value = true
                 updScope.launch { com.ali.files.update.Updater.check(ctx.applicationContext, manual = true) }
