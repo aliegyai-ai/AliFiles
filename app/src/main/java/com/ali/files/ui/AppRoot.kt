@@ -62,6 +62,13 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     var autoUpdateHidden by remember { mutableStateOf(false) }
     // Look for a newer version every time the app comes to the screen — not only on a cold start,
     // because Android usually keeps the app alive in the background and just brings it back.
+    // «remove the music» runs in another process: read its progress (and restart it if Android stopped it)
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.ali.files.separate.Separator.poll(ctx.applicationContext) }
+            kotlinx.coroutines.delay(1000)
+        }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
         if (Updater.shouldAutoCheck()) {
             autoUpdateHidden = false

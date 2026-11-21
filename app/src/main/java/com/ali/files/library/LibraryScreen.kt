@@ -218,6 +218,7 @@ fun LibraryScreen() {
 /** Cards for «remove the music» jobs: progress, time left, cancel, play when done. */
 @Composable
 private fun SeparationJobs() {
+    val ctx = LocalContext.current
     val jobs by com.ali.files.separate.Separator.jobs.collectAsState()
     if (jobs.isEmpty()) return
     val gold = MaterialTheme.colorScheme.primary
@@ -242,7 +243,7 @@ private fun SeparationJobs() {
                                 PlayerHub.play(listOf(Track(id = f.absolutePath, uri = Uri.fromFile(f), title = f.nameWithoutExtension, subtitle = j.mode.label, isVideo = j.isVideo, libraryPath = f.absolutePath)))
                             }) { Icon(Icons.Filled.PlayArrow, "شغّل", tint = gold) }
                         }
-                        IconButton(onClick = { if (j.done) com.ali.files.separate.Separator.dismiss(j.id) else com.ali.files.separate.Separator.cancel(j.id) }) {
+                        IconButton(onClick = { if (j.done) com.ali.files.separate.Separator.dismiss(j.id) else com.ali.files.separate.Separator.cancel(ctx, j.id) }) {
                             Icon(Icons.Filled.Close, if (j.done) "إخفاء" else "إلغاء", Modifier.size(18.dp))
                         }
                     }
