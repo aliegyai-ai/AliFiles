@@ -36,6 +36,15 @@ jobs:
         with:
           name: AliFiles-apk
           path: app/build/outputs/apk/release/*.apk
+      - name: Publish to the fixed download link
+        if: success() && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          cp app/build/outputs/apk/release/*.apk AliFiles.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest AliFiles.apk --title "ملفات علي $VERSION" --notes "$(git log -1 --pretty=%s)" --latest
       - name: Send APK to Telegram
         if: success() && env.TG_TOKEN != ''
         run: |
