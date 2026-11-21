@@ -89,6 +89,9 @@ dependencies {
     implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
 
+    // on-device AI that separates the voice from the music (MDX-Net model, downloaded on first use)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.2")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.2")
