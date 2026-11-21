@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -47,7 +48,13 @@ data class StreamFormat(
 
 data class Suggestion(val audioOnly: Boolean, val height: Int?, val reason: String)
 
-data class VideoRequest(val url: String, val headers: Map<String, String> = emptyMap())
+data class VideoRequest(
+    val url: String,
+    val headers: Map<String, String> = emptyMap(),
+    /** what the page already tells us — shown at once while the qualities load */
+    val title: String? = null,
+    val thumbnail: String? = null,
+)
 
 /**
  * Wraps yt-dlp (via youtubedl-android) — supports YouTube, Facebook, TikTok, Instagram, X
@@ -134,15 +141,98 @@ object VideoExtractor {
         return siteHosts.any { host == it || host.endsWith(".$it") }
     }
 
+    /** yt-dlp keeps YouTube's player code and solved challenges here, so the next video is much faster. */
+    private fun cacheOptions(req: YoutubeDLRequest) {
+        req.addOption("--cache-dir", File(app.cacheDir, "ytdlp-cache").apply { mkdirs() }.absolutePath)
+    }
+
+    // ------------------------------------------------------------ remembering / reading ahead
+
+    private val infoCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, VideoMeta>>()
+    private val inflight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<VideoMeta>>()
+    private const val CACHE_MS = 30 * 60_000L
+    @Volatile private var prefetching = false
+    @Volatile private var nextPrefetch: VideoRequest? = null
+
+    /** One key per video (YouTube links come with many different extra parameters). */
+    fun keyOf(url: String): String {
+        val u = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return url
+        val host = u.host?.lowercase(Locale.US) ?: return url
+        if (host.endsWith("youtube.com") || host == "youtu.be") {
+            youtubeId(url)?.let { return "yt:$it" }
+        }
+        return url.substringBefore('#')
+    }
+
+    fun youtubeId(url: String): String? {
+        val u = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return null
+        val host = u.host?.lowercase(Locale.US) ?: return null
+        return when {
+            host == "youtu.be" -> u.pathSegments.firstOrNull()
+            !host.endsWith("youtube.com") -> null
+            u.getQueryParameter("v") != null -> u.getQueryParameter("v")
+            u.pathSegments.size >= 2 && u.pathSegments[0] in setOf("shorts", "live", "embed") -> u.pathSegments[1]
+            else -> null
+        }?.takeIf { it.length in 6..20 }
+    }
+
+    /** A page that shows one video (not a feed / home page) — worth reading ahead. */
+    fun isSingleVideoPage(url: String): Boolean {
+        if (!isVideoPage(url)) return false
+        if (youtubeId(url) != null) return true
+        val p = url.lowercase(Locale.US)
+        return listOf("/video/", "/videos/", "/reel/", "/reels/", "/watch", "/status/", "/p/", "/v/", "/clip", "fb.watch/", "vm.tiktok.com", "vt.tiktok.com")
+            .any { p.contains(it) }
+    }
+
+    fun cached(r: VideoRequest): VideoMeta? =
+        infoCache[keyOf(r.url)]?.takeIf { System.currentTimeMillis() - it.first < CACHE_MS }?.second
+
+    /** Reads a video's qualities in the background, so they're ready when the user taps download. */
+    fun prefetch(r: VideoRequest) {
+        val key = keyOf(r.url)
+        if (cached(r) != null || inflight.containsKey(key)) return
+        synchronized(this) {
+            if (prefetching) { nextPrefetch = r; return }
+            prefetching = true
+        }
+        scope.launch {
+            var req: VideoRequest? = r
+            while (req != null) {
+                runCatching { info(req) }
+                req = synchronized(this@VideoExtractor) {
+                    val n = nextPrefetch; nextPrefetch = null
+                    if (n == null) prefetching = false
+                    n
+                }
+            }
+        }
+    }
+
+    /** Video details: from memory if read in the last 30 minutes, else from yt-dlp (one run per video at a time). */
+    suspend fun info(r: VideoRequest): VideoMeta {
+        cached(r)?.let { return it }
+        val key = keyOf(r.url)
+        val d = inflight.getOrPut(key) { scope.async { fetchInfo(r) } }
+        try {
+            val m = d.await()
+            infoCache[key] = System.currentTimeMillis() to m
+            return m
+        } finally {
+            if (d.isCompleted) inflight.remove(key, d)
+        }
+    }
+
     private fun headerOptions(req: YoutubeDLRequest, headers: Map<String, String>) {
         headers["Cookie"]?.takeIf { it.isNotBlank() }?.let { req.addOption("--add-header", "Cookie:$it") }
         headers["Referer"]?.takeIf { it.isNotBlank() }?.let { req.addOption("--add-header", "Referer:$it") }
     }
 
-    suspend fun info(r: VideoRequest): VideoMeta = withContext(Dispatchers.IO) {
+    private suspend fun fetchInfo(r: VideoRequest): VideoMeta = withContext(Dispatchers.IO) {
         ready.await()
         fun request(withJs: Boolean) = YoutubeDLRequest(r.url).also { req ->
             req.addOption("--no-playlist")
+            cacheOptions(req)
             headerOptions(req, r.headers)
             if (withJs) jsRuntimeOptions(req)
         }
@@ -320,6 +410,7 @@ object VideoExtractor {
         val req = YoutubeDLRequest(item.url)
         req.addOption("--no-playlist")
         req.addOption("--no-mtime")
+        cacheOptions(req)
         req.addOption("-o", File(dir, "%(title).80B.%(ext)s").absolutePath)
         req.addOption("-f", item.ytFormat ?: formatFor(720))
         if (item.audioOnly) {

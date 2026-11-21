@@ -109,10 +109,18 @@ fun VideoDialog(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             when (val s = state) {
-                Load.Loading -> Row(Modifier.fillMaxWidth().padding(vertical = 36.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(28.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Text("بيقرا الفيديو والجودات المتاحة…")
+                Load.Loading -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // what the page already told us, shown right away
+                    if (req.title != null || req.thumbnail != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Thumb(req.thumbnail, Modifier.width(120.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text(req.title ?: "", fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("بيجيب الجودات المتاحة…")
+                    }
                 }
 
                 is Load.Failed -> {

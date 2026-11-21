@@ -592,7 +592,10 @@ private fun StartPage(c: BrowserController, ui: UiState) {
     var clip by remember { mutableStateOf<String?>(null) }
     var adding by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<Bookmark?>(null) }
-    LaunchedEffect(Unit) { clip = clipboardLink(ctx) }
+    LaunchedEffect(Unit) {
+        clip = clipboardLink(ctx)
+        clip?.takeIf { VideoExtractor.isVideoPage(it) }?.let { VideoExtractor.prefetch(VideoRequest(it)) }
+    }
 
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val greeting = if (hour in 4..11) "صباح الخير يا علي" else "مساء الخير يا علي"
