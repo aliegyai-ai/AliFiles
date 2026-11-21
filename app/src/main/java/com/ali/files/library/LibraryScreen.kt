@@ -38,6 +38,9 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MusicOff
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Favorite
@@ -174,6 +177,7 @@ fun LibraryScreen() {
                 Icon(Icons.Filled.PhoneAndroid, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("شغّل من الموبايل")
             }
         }
+        SeparationJobs()
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LFilter.entries.forEach { f -> FilterChip(selected = filter == f, onClick = { filter = f; openList = null }, label = { Text(f.label) }) }
         }
@@ -209,6 +213,48 @@ fun LibraryScreen() {
     }
 
     menuFor?.let { f -> FileActions(f) { menuFor = null } }
+}
+
+/** Cards for «remove the music» jobs: progress, time left, cancel, play when done. */
+@Composable
+private fun SeparationJobs() {
+    val jobs by com.ali.files.separate.Separator.jobs.collectAsState()
+    if (jobs.isEmpty()) return
+    val gold = MaterialTheme.colorScheme.primary
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        jobs.forEach { j ->
+            Surface(shape = RoundedCornerShape(14.dp), color = gold.copy(alpha = 0.10f)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (j.mode == com.ali.files.separate.SepMode.VOICE) Icons.Filled.MusicOff else Icons.Filled.LibraryMusic, null, tint = gold)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("${j.title} • ${j.mode.label}", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                j.error ?: (j.state + if (j.etaSec > 0 && !j.done) " • باقي ${formatTime(j.etaSec * 1000)}" else ""),
+                                fontSize = 12.sp, color = if (j.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        val out = j.output
+                        if (j.done && out != null) {
+                            IconButton(onClick = {
+                                val f = java.io.File(out)
+                                PlayerHub.play(listOf(Track(id = f.absolutePath, uri = Uri.fromFile(f), title = f.nameWithoutExtension, subtitle = j.mode.label, isVideo = j.isVideo, libraryPath = f.absolutePath)))
+                            }) { Icon(Icons.Filled.PlayArrow, "شغّل", tint = gold) }
+                        }
+                        IconButton(onClick = { if (j.done) com.ali.files.separate.Separator.dismiss(j.id) else com.ali.files.separate.Separator.cancel(j.id) }) {
+                            Icon(Icons.Filled.Close, if (j.done) "إخفاء" else "إلغاء", Modifier.size(18.dp))
+                        }
+                    }
+                    if (!j.done) {
+                        Spacer(Modifier.height(8.dp))
+                        if (j.progress >= 0f) androidx.compose.material3.LinearProgressIndicator(progress = { j.progress }, color = gold, modifier = Modifier.fillMaxWidth())
+                        else androidx.compose.material3.LinearProgressIndicator(color = gold, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -362,7 +408,17 @@ private fun FileActions(f: LibFile, onDismiss: () -> Unit) {
             Action(Icons.Filled.Share, "مشاركة") { onDismiss(); FileStore.share(ctx, Library.uriFor(f.file), f.mime) }
             val fav = f.path in favs
             Action(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, if (fav) "شيل من المفضلة" else "ضيف للمفضلة") { Library.toggleFavorite(f.path); onDismiss() }
-            if (f.kind == FileKind.AUDIO || f.kind == FileKind.VIDEO) Action(Icons.AutoMirrored.Filled.PlaylistAdd, "ضيف لقايمة تشغيل") { pickList = true }
+            if (f.kind == FileKind.AUDIO || f.kind == FileKind.VIDEO) {
+                Action(Icons.Filled.MusicOff, "شيل الموسيقى (الصوت بس)") {
+                    com.ali.files.separate.Separator.start(ctx, f, com.ali.files.separate.SepMode.VOICE)
+                    toast("بدأ فصل الموسيقى — هتلاقي التقدّم فوق في المكتبة"); onDismiss()
+                }
+                Action(Icons.Filled.LibraryMusic, "الموسيقى بس (من غير صوت)") {
+                    com.ali.files.separate.Separator.start(ctx, f, com.ali.files.separate.SepMode.MUSIC)
+                    toast("بدأ فصل الموسيقى — هتلاقي التقدّم فوق في المكتبة"); onDismiss()
+                }
+                Action(Icons.AutoMirrored.Filled.PlaylistAdd, "ضيف لقايمة تشغيل") { pickList = true }
+            }
             Action(Icons.Filled.DriveFileRenameOutline, "إعادة تسمية") { renaming = true }
             Action(Icons.Filled.Lock, "انقله للخزنة 🔒") {
                 scope.launch { runCatching { Library.moveToVault(f) }.onSuccess { toast("اتنقل للخزنة") }.onFailure { toast(it.message ?: "تعذر النقل") } }

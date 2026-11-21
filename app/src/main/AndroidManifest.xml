@@ -73,6 +73,11 @@
         </service>
 
         <service
+            android:name=".separate.SeparateService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".download.DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

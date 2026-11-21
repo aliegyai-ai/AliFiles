@@ -106,6 +106,9 @@ object VideoExtractor {
 
     private fun doUpdate() = YoutubeDL.getInstance().updateYoutubeDL(app)
 
+    /** Waits until yt-dlp and FFmpeg are unpacked (FFmpeg is also used to cut / join audio). */
+    suspend fun awaitReady() = ready.await()
+
     suspend fun update(): String = withContext(Dispatchers.IO) {
         ready.await()
         val status = doUpdate()
