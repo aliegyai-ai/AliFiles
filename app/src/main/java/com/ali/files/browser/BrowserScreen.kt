@@ -31,6 +31,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -157,12 +166,31 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
     var menu by remember { mutableStateOf(false) }
     var findOpen by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
+    var lastBackOnHome by remember { mutableLongStateOf(0L) }
     val home = tab?.home?.value == true
 
-    BackHandler(enabled = !home && tab?.canBack?.value == true) { tab?.webView?.goBack() }
-    BackHandler(enabled = home && tab?.url?.value?.isNotBlank() == true) { tab?.let { c.leaveHome(it) } }
-    BackHandler(enabled = findOpen) { findOpen = false; tab?.webView?.clearMatches() }
+    // One back handler that always decides itself, so a swipe-back never closes the app by surprise:
+    // previous page → start page → «swipe again to exit».
+    BackHandler(enabled = !c.fullscreen.value) {
+        val t = c.current
+        when {
+            findOpen -> { findOpen = false; t?.webView?.clearMatches() }
+            t == null -> {}
+            !t.home.value && t.webView.canGoBack() -> t.webView.goBack()
+            !t.home.value -> c.goHome()
+            else -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBackOnHome < 2000) (ctx as? android.app.Activity)?.moveTaskToBack(true)
+                else {
+                    lastBackOnHome = now
+                    Toast.makeText(ctx, "اسحب تاني للخروج", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
     BackHandler(enabled = c.fullscreen.value) { c.exitFullscreen() }
+
+    val barsVisible = home || !c.barsHidden.value || findOpen
 
     Column(Modifier.fillMaxSize()) {
         // ---------------------------------------------------- page (or start page)
@@ -184,31 +212,26 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
                 )
                 // optional floating download button (off by default — the toolbar icon does the same job)
                 val videoSite = tab?.url?.value?.let { VideoExtractor.isVideoPage(it) } == true
-                val found = tab?.media?.size ?: 0
+                val found = tab?.videoCount ?: 0
                 if (AppSettings.floatingDownload.value && tab != null && (tab.playing.value || videoSite || found > 0)) {
                     ExtendedFloatingActionButton(
                         onClick = { downloadAction(c, tab) { showMedia = true } },
                         icon = { Icon(Icons.Filled.Download, null) },
-                        text = {
-                            Text("حمّل الفيديو", fontWeight = FontWeight.Bold)
-                            if (found > 1) {
-                                Spacer(Modifier.width(8.dp))
-                                Box(
-                                    Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.onPrimary).padding(horizontal = 7.dp, vertical = 1.dp),
-                                ) { Text("$found", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-                            }
-                        },
+                        text = { Text("حمّل الفيديو", fontWeight = FontWeight.Bold) },
                         shape = RoundedCornerShape(50),
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
                     )
                 }
+                // thin loading line at the bottom edge of the page
+                val progress = tab?.progress?.intValue ?: 100
+                if (progress < 100) LinearProgressIndicator(
+                    progress = { progress / 100f },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp),
+                )
             }
         }
-
-        val progress = tab?.progress?.intValue ?: 100
-        if (!home && progress < 100) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
 
         if (findOpen) FindBar(
             query = findQuery,
@@ -218,83 +241,71 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
             onClose = { findOpen = false; tab?.webView?.clearMatches() },
         )
 
-        // ---------------------------------------------------- bottom toolbar (in thumb reach)
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        Row(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 4.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val canBack = if (home) tab?.url?.value?.isNotBlank() == true else tab?.canBack?.value == true
-            IconButton(enabled = canBack, onClick = { if (home) tab?.let { c.leaveHome(it) } else tab?.webView?.goBack() }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع")
-            }
-            AddressField(c, tab, Modifier.weight(1f)) { focus.clearFocus() }
-            // download icon: grey when nothing to download, gold with a count when the page has a video
-            val videoSite = !home && tab?.url?.value?.let { VideoExtractor.isVideoPage(it) } == true
-            val found = if (home) 0 else tab?.media?.size ?: 0
-            val hasVideo = videoSite || found > 0 || (!home && tab?.playing?.value == true)
-            IconButton(enabled = !home && tab != null, onClick = { tab?.let { t -> downloadAction(c, t) { showMedia = true } } }) {
-                BadgedBox(badge = { if (found > 0) Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text("$found") } }) {
-                    Icon(
-                        Icons.Filled.Download, "حمّل الفيديو",
-                        tint = if (hasVideo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (home) 0.4f else 1f),
-                    )
-                }
-            }
-            IconButton(onClick = { tab?.let { c.captureThumb(it) }; showTabs = true }) {
-                Surface(
-                    shape = RoundedCornerShape(7.dp),
-                    border = BorderStroke(1.6.dp, MaterialTheme.colorScheme.onSurfaceVariant),
-                    color = Color.Transparent,
+        // ---------------------------------------------------- one slim toolbar (slides away while scrolling down)
+        AnimatedVisibility(visible = barsVisible, enter = expandVertically(), exit = shrinkVertically()) {
+            Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow).navigationBarsPadding()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                Row(
+                    Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        if (c.tabs.size > 99) "∞" else "${c.tabs.size}",
-                        Modifier.width(24.dp).padding(vertical = 1.dp), textAlign = TextAlign.Center,
-                        fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-            Box {
-                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "القائمة") }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    if (tab != null && !home) {
-                        Row(Modifier.padding(horizontal = 8.dp)) {
-                            IconButton(enabled = tab.canForward.value, onClick = { menu = false; tab.webView.goForward() }) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "قدام") }
-                            IconButton(onClick = { menu = false; tab.webView.reload() }) { Icon(Icons.Filled.Refresh, "تحديث") }
-                            val marked = c.isBookmarked(tab.url.value)
-                            IconButton(onClick = { menu = false; c.toggleBookmark(tab) }) {
-                                Icon(if (marked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, if (marked) "شيل من المفضلة" else "ضيف للمفضلة",
-                                    tint = if (marked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            IconButton(onClick = { menu = false; c.goHome() }) { Icon(Icons.Filled.Home, "الصفحة الرئيسية") }
+                    val canBack = if (home) tab?.url?.value?.isNotBlank() == true else true
+                    BarButton(enabled = canBack, onClick = {
+                        val t = c.current ?: return@BarButton
+                        when {
+                            t.home.value -> c.leaveHome(t)
+                            t.webView.canGoBack() -> t.webView.goBack()
+                            else -> c.goHome()
                         }
-                        HorizontalDivider()
+                    }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع", Modifier.size(22.dp)) }
+
+                    AddressField(c, tab, Modifier.weight(1f).padding(horizontal = 4.dp)) { focus.clearFocus() }
+
+                    // download: grey when nothing to download, gold when the page has a video
+                    val videoSite = !home && tab?.url?.value?.let { VideoExtractor.isVideoPage(it) } == true
+                    val found = if (home) 0 else tab?.videoCount ?: 0
+                    val hasVideo = videoSite || found > 0 || (!home && tab?.playing?.value == true)
+                    BarButton(enabled = !home && tab != null, onClick = { tab?.let { t -> downloadAction(c, t) { showMedia = true } } }) {
+                        BadgedBox(badge = {
+                            if (found > 1) Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                                Text(if (found > 9) "+9" else "$found", fontSize = 9.sp)
+                            }
+                        }) {
+                            Icon(
+                                Icons.Filled.Download, "حمّل الفيديو", Modifier.size(22.dp),
+                                tint = when {
+                                    home -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                    hasVideo -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
                     }
-                    DropdownMenuItem(text = { Text("تبويب جديد") }, leadingIcon = { Icon(Icons.Filled.Add, null) }, onClick = { menu = false; c.newTab() })
-                    DropdownMenuItem(text = { Text("تبويب خاص (بدون سجل)") }, leadingIcon = { Icon(Icons.Filled.VisibilityOff, null) }, onClick = { menu = false; c.newTab(incognito = true) })
-                    DropdownMenuItem(text = { Text("المفضلة والسجل") }, leadingIcon = { Icon(Icons.Filled.History, null) }, onClick = { menu = false; showLibrary = true })
-                    if (tab != null && !home) {
-                        DropdownMenuItem(text = { Text("الوسائط اللي في الصفحة") }, leadingIcon = { Icon(Icons.Filled.VideoLibrary, null) }, onClick = { menu = false; c.sniffDom(tab); showMedia = true })
-                        DropdownMenuItem(text = { Text("حمّل الفيديو من الصفحة دي") }, leadingIcon = { Icon(Icons.Filled.Download, null) }, onClick = { menu = false; c.requestVideo(tab) })
-                        DropdownMenuItem(text = { Text("بحث في الصفحة") }, leadingIcon = { Icon(Icons.Filled.Search, null) }, onClick = { menu = false; findOpen = true })
-                        DropdownMenuItem(
-                            text = { Text("وضع الكمبيوتر") },
-                            leadingIcon = { Icon(Icons.Filled.Public, null) },
-                            trailingIcon = { Checkbox(checked = tab.desktop.value, onCheckedChange = null) },
-                            onClick = { menu = false; c.setDesktop(tab, !tab.desktop.value) },
-                        )
-                        DropdownMenuItem(text = { Text("مشاركة الرابط") }, leadingIcon = { Icon(Icons.Filled.Share, null) }, onClick = {
-                            menu = false
-                            ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, tab.url.value), "مشاركة"))
-                        })
-                        DropdownMenuItem(text = { Text("نسخ الرابط") }, leadingIcon = { Icon(Icons.Filled.ContentCopy, null) }, onClick = { menu = false; copy(ctx, tab.url.value) })
+
+                    BarButton(onClick = { tab?.let { c.captureThumb(it) }; showTabs = true }) {
+                        Box(
+                            Modifier.size(22.dp).border(1.6.dp, MaterialTheme.colorScheme.onSurfaceVariant, RoundedCornerShape(6.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(if (c.tabs.size > 99) "∞" else "${c.tabs.size}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
+
+                    BarButton(onClick = { menu = true }) { Icon(Icons.Filled.Menu, "القائمة", Modifier.size(22.dp)) }
                 }
             }
         }
     }
 
     // ---------------------------------------------------- sheets & dialogs
+    if (menu) MenuSheet(
+        c = c, tab = tab, home = home,
+        onDismiss = { menu = false },
+        onFind = { findOpen = true },
+        onLibrary = { showLibrary = true },
+        onMedia = { tab?.let { c.sniffDom(it) }; showMedia = true },
+        onOpenApp = { ui.tab.intValue = it },
+    )
     if (showTabs) TabsSheet(c) { showTabs = false }
     if (showMedia && tab != null) MediaSheet(c, tab) { showMedia = false }
     if (showLibrary) LibrarySheet(c) { showLibrary = false }
@@ -319,6 +330,97 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
     }
 }
 
+/** A compact 44dp toolbar button (the default IconButton is 48dp and made the bar too tall). */
+@Composable
+private fun BarButton(enabled: Boolean = true, onClick: () -> Unit, content: @Composable () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).clickable(enabled = enabled, onClick = onClick)
+            .then(if (enabled) Modifier else Modifier.alpha(0.35f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) { content() }
+    }
+}
+
+// ============================================================ menu (grid of icons in a bottom sheet)
+
+@Composable
+private fun MenuSheet(
+    c: BrowserController, tab: BrowserTab?, home: Boolean,
+    onDismiss: () -> Unit, onFind: () -> Unit, onLibrary: () -> Unit, onMedia: () -> Unit, onOpenApp: (Int) -> Unit,
+) {
+    val ctx = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    val page = tab?.takeIf { !home }
+    fun act(f: () -> Unit) { onDismiss(); f() }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = scheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 18.dp)) {
+            // quick row
+            if (page != null) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    IconButton(enabled = page.canForward.value, onClick = { act { page.webView.goForward() } }) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "قدام") }
+                    IconButton(onClick = { act { page.webView.reload() } }) { Icon(Icons.Filled.Refresh, "تحديث") }
+                    val marked = c.isBookmarked(page.url.value)
+                    IconButton(onClick = { act { c.toggleBookmark(page) } }) {
+                        Icon(if (marked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, "المفضلة", tint = if (marked) scheme.primary else scheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = {
+                        act { ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, page.url.value), "مشاركة")) }
+                    }) { Icon(Icons.Filled.Share, "مشاركة") }
+                    IconButton(onClick = { act { copy(ctx, page.url.value) } }) { Icon(Icons.Filled.ContentCopy, "نسخ الرابط") }
+                }
+                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.4f), modifier = Modifier.padding(bottom = 12.dp))
+            }
+
+            val items = buildList {
+                add(MenuItem("تبويب جديد", Icons.Filled.Add) { act { c.newTab() } })
+                add(MenuItem("تبويب خفي", Icons.Filled.VisibilityOff, accent = Color(0xFFB896E6)) { act { c.newTab(incognito = true) } })
+                add(MenuItem("المفضلة والسجل", Icons.Filled.History) { act(onLibrary) })
+                add(MenuItem("الرئيسية", Icons.Filled.Home) { act { c.goHome() } })
+                if (page != null) {
+                    add(MenuItem("بحث في الصفحة", Icons.Filled.Search) { act(onFind) })
+                    add(MenuItem("وسائط الصفحة", Icons.Filled.VideoLibrary) { act(onMedia) })
+                    add(MenuItem("وضع الكمبيوتر", Icons.Filled.Computer, selected = page.desktop.value) { act { c.setDesktop(page, !page.desktop.value) } })
+                }
+                add(MenuItem("التحميلات", Icons.Filled.Download) { act { onOpenApp(UiState.TAB_DOWNLOADS) } })
+                add(MenuItem("الخزنة", Icons.Filled.Lock) { act { onOpenApp(UiState.TAB_VAULT) } })
+                add(MenuItem("الإعدادات", Icons.Filled.Settings) { act { onOpenApp(UiState.TAB_SETTINGS) } })
+            }
+            items.chunked(4).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+                    row.forEach { m -> Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) { MenuTile(m) } }
+                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+private class MenuItem(
+    val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val accent: Color? = null, val selected: Boolean = false, val onClick: () -> Unit,
+)
+
+@Composable
+private fun MenuTile(m: MenuItem) {
+    val scheme = MaterialTheme.colorScheme
+    val tint = m.accent ?: scheme.primary
+    Column(
+        Modifier.width(80.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = m.onClick).padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(48.dp).clip(RoundedCornerShape(15.dp))
+                .background(if (m.selected) tint.copy(alpha = 0.28f) else scheme.surfaceContainerHighest)
+                .then(if (m.selected) Modifier.border(1.5.dp, tint, RoundedCornerShape(15.dp)) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) { Icon(m.icon, null, tint = tint, modifier = Modifier.size(22.dp)) }
+        Spacer(Modifier.height(5.dp))
+        Text(m.label, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    }
+}
+
 /**
  * What the download button does: video sites and a playing video go to yt-dlp; a page with several
  * caught media files opens the list to pick from; anything else scans the page and opens the list.
@@ -327,7 +429,7 @@ private fun downloadAction(c: BrowserController, tab: BrowserTab, openMedia: () 
     val videoSite = VideoExtractor.isVideoPage(tab.url.value)
     when {
         videoSite || tab.playing.value -> c.downloadVideo(tab)
-        tab.media.size == 1 -> c.requestDownload(tab.media.first().url, tab)
+        tab.videoCount == 1 -> c.requestDownload(tab.media.first { it.kind == "فيديو" || it.kind == "HLS" }.url, tab)
         else -> { c.sniffDom(tab); openMedia() }
     }
 }

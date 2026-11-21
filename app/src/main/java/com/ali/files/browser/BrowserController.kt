@@ -71,6 +71,9 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     /** small screenshot for the tab switcher */
     val thumb = mutableStateOf<android.graphics.Bitmap?>(null)
 
+    /** how many videos (not images/sounds) the page has — for the badge on the download icon */
+    val videoCount: Int get() = media.count { it.kind == "فيديو" || it.kind == "HLS" }
+
     fun addMedia(u: String, kind: String) {
         if (media.size < 60 && media.none { it.url == u }) media.add(DetectedMedia(u, kind))
     }
@@ -93,6 +96,8 @@ class BrowserController(private val activity: Activity) {
     private var nextId = 1L
 
     val tabs = mutableStateListOf<BrowserTab>()
+    /** the bottom toolbar slides away while scrolling down a page, and back on scrolling up */
+    val barsHidden = mutableStateOf(false)
     val currentId = mutableLongStateOf(-1L)
     val current: BrowserTab? get() = tabs.firstOrNull { it.id == currentId.longValue }
 
@@ -141,6 +146,7 @@ class BrowserController(private val activity: Activity) {
     fun select(id: Long) {
         current?.let { captureThumb(it) }
         currentId.longValue = id
+        barsHidden.value = false
     }
 
     /** Shows the start page in the current tab (the website stays behind it, so «back» returns to it). */
@@ -380,6 +386,17 @@ class BrowserController(private val activity: Activity) {
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
         }
 
+        // hide the toolbar while reading down the page, show it again when scrolling up
+        wv.setOnScrollChangeListener { _, _, y, _, oldY ->
+            if (tab.id != currentId.longValue) return@setOnScrollChangeListener
+            val dy = y - oldY
+            when {
+                y < 60 -> if (barsHidden.value) barsHidden.value = false
+                dy > 18 -> if (!barsHidden.value) barsHidden.value = true
+                dy < -18 -> if (barsHidden.value) barsHidden.value = false
+            }
+        }
+
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
@@ -409,6 +426,7 @@ class BrowserController(private val activity: Activity) {
                 tab.lastVideoPage = ""
                 tab.blocked.intValue = 0
                 tab.progress.intValue = 5
+                if (tab.id == currentId.longValue) barsHidden.value = false
             }
 
             override fun onPageFinished(view: WebView, url: String?) {

@@ -69,7 +69,8 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     Scaffold(
         snackbarHost = { SnackbarHost(ui.snackbar) },
         bottomBar = {
-            if (!browser.fullscreen.value) NavigationBar {
+            // the browser has its own slim toolbar + menu, so the app bar only shows on the other screens
+            if (!browser.fullscreen.value && tab != UiState.TAB_BROWSER) NavigationBar {
                 NavigationBarItem(
                     selected = tab == UiState.TAB_BROWSER, onClick = { ui.tab.intValue = UiState.TAB_BROWSER },
                     icon = { Icon(Icons.Filled.Public, null) }, label = { Text("المتصفح") },
@@ -92,6 +93,8 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
             }
         },
     ) { pad ->
+        // back from downloads / vault / settings returns to the browser instead of closing the app
+        androidx.activity.compose.BackHandler(enabled = tab != UiState.TAB_BROWSER) { ui.tab.intValue = UiState.TAB_BROWSER }
         Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).imePadding()) {
             when (tab) {
                 UiState.TAB_BROWSER -> BrowserScreen(browser, ui)
