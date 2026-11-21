@@ -10,6 +10,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -33,3 +36,27 @@ jobs:
         with:
           name: AliFiles-apk
           path: app/build/outputs/apk/release/*.apk
+      - name: Send APK to Telegram
+        if: success() && env.TG_TOKEN != ''
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          MSG=$(git log -1 --pretty=%s)
+          cp "$APK" "AliFiles-$VERSION.apk"
+          SIZE=$(stat -c %s "AliFiles-$VERSION.apk")
+          if [ "$SIZE" -lt 49000000 ]; then
+            curl -sS -F chat_id="$TG_CHAT" -F document=@"AliFiles-$VERSION.apk" \
+              -F caption="📦 ملفات علي — نسخة $VERSION
+          $MSG
+          دوس على الملف عشان تثبّته" \
+              "https://api.telegram.org/bot$TG_TOKEN/sendDocument" | head -c 300
+          else
+            curl -sS -d chat_id="$TG_CHAT" \
+              --data-urlencode text="📦 نسخة $VERSION جاهزة بس حجمها أكبر من حد تيليجرام. نزّلها من: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              "https://api.telegram.org/bot$TG_TOKEN/sendMessage" | head -c 300
+          fi
+      - name: Tell Telegram the build failed
+        if: failure() && env.TG_TOKEN != ''
+        run: |
+          curl -sS -d chat_id="$TG_CHAT" --data-urlencode text="⚠️ بناء نسخة جديدة من ملفات علي فشل — Claude هيصلّحه." \
+            "https://api.telegram.org/bot$TG_TOKEN/sendMessage" | head -c 300
