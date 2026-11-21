@@ -1,0 +1,132 @@
+package com.ali.files.ui
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import android.webkit.URLUtil
+import com.ali.files.browser.BrowserController
+import com.ali.files.browser.BrowserScreen
+import com.ali.files.browser.MediaSniffer
+import com.ali.files.download.DownloadDialog
+import com.ali.files.download.DownloadRequest
+import com.ali.files.download.Downloader
+import com.ali.files.download.DownloadsScreen
+import com.ali.files.vault.ImportSharedDialog
+import com.ali.files.vault.VaultScreen
+import kotlinx.coroutines.launch
+
+@Composable
+fun AppRoot(browser: BrowserController, ui: UiState) {
+    val scope = rememberCoroutineScope()
+    val downloads by Downloader.items.collectAsState()
+    val activeCount = downloads.count { it.active }
+    val tab = ui.tab.intValue
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(ui.snackbar) },
+        bottomBar = {
+            if (!browser.fullscreen.value) NavigationBar {
+                NavigationBarItem(
+                    selected = tab == UiState.TAB_BROWSER, onClick = { ui.tab.intValue = UiState.TAB_BROWSER },
+                    icon = { Icon(Icons.Filled.Public, null) }, label = { Text("المتصفح") },
+                )
+                NavigationBarItem(
+                    selected = tab == UiState.TAB_DOWNLOADS, onClick = { ui.tab.intValue = UiState.TAB_DOWNLOADS },
+                    icon = {
+                        BadgedBox(badge = { if (activeCount > 0) Badge { Text("$activeCount") } }) { Icon(Icons.Filled.Download, null) }
+                    },
+                    label = { Text("التحميلات") },
+                )
+                NavigationBarItem(
+                    selected = tab == UiState.TAB_VAULT, onClick = { ui.tab.intValue = UiState.TAB_VAULT },
+                    icon = { Icon(Icons.Filled.Lock, null) }, label = { Text("الخزنة") },
+                )
+                NavigationBarItem(
+                    selected = tab == UiState.TAB_SETTINGS, onClick = { ui.tab.intValue = UiState.TAB_SETTINGS },
+                    icon = { Icon(Icons.Filled.Settings, null) }, label = { Text("الإعدادات") },
+                )
+            }
+        },
+    ) { pad ->
+        Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).imePadding()) {
+            when (tab) {
+                UiState.TAB_BROWSER -> BrowserScreen(browser, ui)
+                UiState.TAB_DOWNLOADS -> DownloadsScreen(
+                    onRequest = { ui.pendingDownload.value = it },
+                    onOpenVault = { ui.tab.intValue = UiState.TAB_VAULT },
+                )
+                UiState.TAB_VAULT -> VaultScreen()
+                else -> SettingsScreen(browser)
+            }
+        }
+    }
+
+    // ---------------------------------------------- download confirmation
+    ui.pendingDownload.value?.let { req ->
+        DownloadDialog(
+            req = req,
+            onDismiss = { ui.pendingDownload.value = null },
+            onStarted = { toVault ->
+                ui.pendingDownload.value = null
+                scope.launch {
+                    val r = ui.snackbar.showSnackbar(
+                        if (toVault) "بدأ التحميل للخزنة 🔒" else "بدأ التحميل",
+                        actionLabel = "عرض", duration = SnackbarDuration.Short,
+                    )
+                    if (r == SnackbarResult.ActionPerformed) ui.tab.intValue = UiState.TAB_DOWNLOADS
+                }
+            },
+        )
+    }
+
+    // ---------------------------------------------- files shared into the app
+    if (ui.sharedUris.value.isNotEmpty()) {
+        ImportSharedDialog(ui.sharedUris.value) { ui.sharedUris.value = emptyList() }
+    }
+
+    // ---------------------------------------------- link found in clipboard
+    val clip = ui.clipLink.value
+    LaunchedEffect(clip) {
+        if (clip != null) {
+            val direct = MediaSniffer.kind(clip) != null
+            val r = ui.snackbar.showSnackbar(
+                "لقيت لينك منسوخ: ${clip.take(48)}",
+                actionLabel = if (direct) "حمّله" else "افتحه",
+                withDismissAction = true,
+                duration = SnackbarDuration.Long,
+            )
+            ui.clipLink.value = null
+            if (r == SnackbarResult.ActionPerformed) {
+                if (direct) {
+                    ui.pendingDownload.value = DownloadRequest(clip, URLUtil.guessFileName(clip, null, null))
+                } else {
+                    browser.newTab(clip)
+                    ui.tab.intValue = UiState.TAB_BROWSER
+                }
+            }
+        }
+    }
+}
