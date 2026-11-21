@@ -234,7 +234,13 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
     }
     BackHandler(enabled = c.fullscreen.value) { c.exitFullscreen() }
 
-    val barsVisible = home || !c.barsHidden.value || findOpen
+    // While typing in a page (e.g. YouTube search) the toolbar hides and stays hidden: showing/hiding it
+    // resized the page under the keyboard, and sites like YouTube then drew their filter row over the suggestions.
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    LaunchedEffect(imeVisible) { c.imeOpen = imeVisible }
+    val typingInPage = imeVisible && !c.addressFocused.value && !findOpen
+    val barsVisible = !typingInPage && (home || !c.barsHidden.value || findOpen)
 
     Column(Modifier.fillMaxSize()) {
         // ---------------------------------------------------- page (or start page)
@@ -835,6 +841,7 @@ private fun AddressField(c: BrowserController, tab: BrowserTab?, modifier: Modif
                             text = TextFieldValue(url, selection = TextRange(0, url.length))
                         }
                         editing = f.isFocused
+                        c.addressFocused.value = f.isFocused
                     },
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {

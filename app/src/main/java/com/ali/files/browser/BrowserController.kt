@@ -104,6 +104,10 @@ class BrowserController(private val activity: Activity) {
     val tabs = mutableStateListOf<BrowserTab>()
     /** the bottom toolbar slides away while scrolling down a page, and back on scrolling up */
     val barsHidden = mutableStateOf(false)
+    /** the address bar is being typed in (then the toolbar must stay on screen) */
+    val addressFocused = mutableStateOf(false)
+    /** keyboard is open for a box inside the page — the toolbar stays put so the page isn't resized under it */
+    @Volatile var imeOpen = false
     val currentId = mutableLongStateOf(-1L)
     val current: BrowserTab? get() = tabs.firstOrNull { it.id == currentId.longValue }
 
@@ -483,7 +487,7 @@ class BrowserController(private val activity: Activity) {
 
         // hide the toolbar while reading down the page, show it again when scrolling up
         wv.setOnScrollChangeListener { _, _, y, _, oldY ->
-            if (tab.id != currentId.longValue) return@setOnScrollChangeListener
+            if (tab.id != currentId.longValue || imeOpen) return@setOnScrollChangeListener
             val dy = y - oldY
             when {
                 y < 60 -> if (barsHidden.value) barsHidden.value = false
