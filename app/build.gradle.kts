@@ -13,8 +13,8 @@ android {
         applicationId = "com.ali.files"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
         // both of Ali's devices (Galaxy A52s, MatePad 11.5 S) are 64-bit ARM; keeps the APK small
         ndk { abiFilters += listOf("arm64-v8a") }
     }
@@ -62,6 +62,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.webkit:webkit:1.12.1")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.2")

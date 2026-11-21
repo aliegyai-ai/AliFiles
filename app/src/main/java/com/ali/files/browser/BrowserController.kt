@@ -61,6 +61,10 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     val blocked = mutableIntStateOf(0)
     val desktop = mutableStateOf(false)
     val media = mutableStateListOf<DetectedMedia>()
+    /** set when a <video> in the page starts playing — shows the floating download button */
+    val playing = mutableStateOf(false)
+    var lastVideoSrc: String = ""
+    var lastVideoPage: String = ""
     val secure: Boolean get() = url.value.startsWith("https://")
 
     fun addMedia(u: String, kind: String) {
@@ -74,6 +78,10 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
  */
 class BrowserController(private val activity: Activity) {
     private val main = Handler(Looper.getMainLooper())
+    private val docStartScript: Boolean by lazy {
+        runCatching { androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT) }.getOrDefault(false)
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
     private var nextId = 1L
 
@@ -259,10 +267,18 @@ class BrowserController(private val activity: Activity) {
     }
 
     /** Hands the current page to yt-dlp (YouTube, Facebook, TikTok…), with the browser's login cookies. */
-    fun requestVideo(tab: BrowserTab) {
-        val url = tab.url.value
+    fun requestVideo(tab: BrowserTab, page: String? = null) {
+        val url = page?.takeIf { it.startsWith("http") } ?: tab.url.value
         if (!url.startsWith("http")) return
         onVideoRequest?.invoke(com.ali.files.download.VideoRequest(url, headersFor(url, tab.webView.settings.userAgentString, null)))
+    }
+
+    /** A ⬇ button on a video (or the floating one) was tapped. */
+    fun downloadVideo(tab: BrowserTab, src: String = tab.lastVideoSrc, page: String = tab.lastVideoPage) {
+        val pageUrl = page.ifBlank { tab.url.value }
+        val direct = src.startsWith("http") && !com.ali.files.download.VideoExtractor.isVideoPage(pageUrl) &&
+            (MediaSniffer.kind(src) != null || !src.contains("googlevideo"))
+        if (direct) requestDownload(src, tab) else requestVideo(tab, pageUrl)
     }
 
     private fun saveDataUrl(url: String) {
@@ -301,6 +317,15 @@ class BrowserController(private val activity: Activity) {
         }
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, !tab.incognito)
 
+        // ⬇ buttons on every video (all frames, injected before the page's own scripts when supported)
+        wv.addJavascriptInterface(VideoButtons.Bridge(
+            onDownload = { src, page -> tab.lastVideoSrc = src; tab.lastVideoPage = page; downloadVideo(tab, src, page) },
+            onPlaying = { src, page -> tab.lastVideoSrc = src; tab.lastVideoPage = page; tab.playing.value = true },
+        ), VideoButtons.BRIDGE)
+        if (docStartScript) {
+            runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
+        }
+
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
@@ -325,6 +350,9 @@ class BrowserController(private val activity: Activity) {
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 tab.url.value = url ?: ""
                 tab.media.clear()
+                tab.playing.value = false
+                tab.lastVideoSrc = ""
+                tab.lastVideoPage = ""
                 tab.blocked.intValue = 0
                 tab.progress.intValue = 5
             }
@@ -336,6 +364,7 @@ class BrowserController(private val activity: Activity) {
                 tab.canForward.value = view.canGoForward()
                 if (!tab.incognito) addHistory(tab.title.value, tab.url.value)
                 sniffDom(tab)
+                if (!docStartScript) view.evaluateJavascript(VideoButtons.SCRIPT, null)
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
@@ -375,11 +404,29 @@ class BrowserController(private val activity: Activity) {
 
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
                 if (fullscreenView != null) { callback.onCustomViewHidden(); return }
-                fullscreenView = view
+                val frame = FrameLayout(activity)
+                frame.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                val d = activity.resources.displayMetrics.density
+                val btn = android.widget.TextView(activity).apply {
+                    text = "\u2B07"
+                    textSize = 22f
+                    setTextColor(android.graphics.Color.WHITE)
+                    gravity = android.view.Gravity.CENTER
+                    contentDescription = "تحميل الفيديو"
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(0xEB0F5E57.toInt())
+                    }
+                    setOnClickListener { downloadVideo(tab) }
+                }
+                frame.addView(btn, FrameLayout.LayoutParams((48 * d).toInt(), (48 * d).toInt(), android.view.Gravity.TOP or android.view.Gravity.END).apply {
+                    val m = (20 * d).toInt(); setMargins(m, m, m, m)
+                })
+                fullscreenView = frame
                 fullscreenCallback = callback
                 fullscreen.value = true
                 (activity.window.decorView as FrameLayout).addView(
-                    view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                    frame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 )
                 WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
                     hide(WindowInsetsCompat.Type.systemBars())

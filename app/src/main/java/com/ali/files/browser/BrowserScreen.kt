@@ -143,9 +143,10 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
         )
 
         // ---------------------------------------------------- page
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         AndroidView(
             factory = { context -> FrameLayout(context) },
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             update = { container ->
                 val wv = tab?.webView
                 if (wv != null && (container.childCount != 1 || container.getChildAt(0) !== wv)) {
@@ -155,6 +156,19 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
                 }
             },
         )
+        // floating download button: shows when a video in the page is playing
+        val videoSite = tab?.url?.value?.let { com.ali.files.download.VideoExtractor.isVideoPage(it) } == true
+        if (tab != null && (tab.playing.value || videoSite)) {
+            androidx.compose.material3.ExtendedFloatingActionButton(
+                onClick = { c.downloadVideo(tab) },
+                icon = { Icon(Icons.Filled.Download, null) },
+                text = { Text("حمّل الفيديو") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
+            )
+        }
+        }
 
         // ---------------------------------------------------- toolbar
         HorizontalDivider()
