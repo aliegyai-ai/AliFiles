@@ -80,6 +80,21 @@ fun SettingsScreen(browser: BrowserController) {
         )
         SwitchRow("احفظ التحميلات في الخزنة تلقائياً", "تقدر تغيّرها لكل تحميل", AppSettings.saveToVault.value) { AppSettings.setSaveToVault(it) }
 
+        var updating by remember { mutableStateOf(false) }
+        val scope2 = rememberCoroutineScope()
+        ListItem(
+            headlineContent = { Text(if (updating) "جاري التحديث…" else "حدّث محرك تحميل الفيديو") },
+            supportingContent = { Text("لو يوتيوب أو فيسبوك بطّل يحمّل، حدّثه من هنا (بيتحدث لوحده كل يومين)") },
+            modifier = Modifier.clickable(enabled = !updating) {
+                updating = true
+                scope2.launch {
+                    val msg = runCatching { com.ali.files.download.VideoExtractor.update() }.getOrElse { "تعذر التحديث: ${it.message}" }
+                    updating = false
+                    Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                }
+            },
+        )
+
         HorizontalDivider()
         Section("المتصفح")
         SwitchRow("مانع الإعلانات والنوافذ المنبثقة", "بيقفل شبكات الإعلانات والتتبع", AppSettings.adBlock.value) { AppSettings.setAdBlock(it) }

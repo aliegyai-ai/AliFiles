@@ -13,8 +13,10 @@ android {
         applicationId = "com.ali.files"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0-phase1"
+        versionCode = 2
+        versionName = "1.1"
+        // both of Ali's devices (Galaxy A52s, MatePad 11.5 S) are 64-bit ARM; keeps the APK small
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     buildTypes {
@@ -40,6 +42,7 @@ android {
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        jniLibs.useLegacyPackaging = true // yt-dlp's bundled Python must be extracted to disk
     }
 }
 
@@ -61,6 +64,8 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.17.2")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

@@ -211,8 +211,9 @@ private fun DownloadRow(d: DownloadItem, onOpenVault: () -> Unit) {
 private fun statusLine(d: DownloadItem): String {
     val size = if (d.total > 0) "${formatBytes(d.downloaded)} / ${formatBytes(d.total)}" else formatBytes(d.downloaded)
     return when (d.status) {
-        DStatus.QUEUED -> "في الانتظار…"
+        DStatus.QUEUED -> if (d.ytdlp) "بيجهّز الفيديو…" else "في الانتظار…"
         DStatus.RUNNING -> buildString {
+            if (d.ytdlp && d.note != null) append(d.note).append(" • ")
             if (d.hls) append("جزء ${d.hlsIndex} من ${d.hlsTotal} • ${formatBytes(d.downloaded)}") else append(size)
             if (d.speed > 0) {
                 append(" • ${formatBytes(d.speed)}/ث")

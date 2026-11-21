@@ -31,6 +31,10 @@ data class DownloadItem(
     val hlsIndex: Int = 0,
     val hlsTotal: Int = 0,
     val speed: Long = 0,
+    val ytdlp: Boolean = false,
+    val ytFormat: String? = null,
+    val audioOnly: Boolean = false,
+    val note: String? = null,
 ) {
     val fraction: Float
         get() = when {

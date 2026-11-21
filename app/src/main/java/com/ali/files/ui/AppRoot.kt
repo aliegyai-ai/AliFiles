@@ -34,6 +34,9 @@ import com.ali.files.download.DownloadDialog
 import com.ali.files.download.DownloadRequest
 import com.ali.files.download.Downloader
 import com.ali.files.download.DownloadsScreen
+import com.ali.files.download.VideoDialog
+import com.ali.files.download.VideoExtractor
+import com.ali.files.download.VideoRequest
 import com.ali.files.vault.ImportSharedDialog
 import com.ali.files.vault.VaultScreen
 import kotlinx.coroutines.launch
@@ -75,7 +78,10 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
             when (tab) {
                 UiState.TAB_BROWSER -> BrowserScreen(browser, ui)
                 UiState.TAB_DOWNLOADS -> DownloadsScreen(
-                    onRequest = { ui.pendingDownload.value = it },
+                    onRequest = { r ->
+                        if (MediaSniffer.kind(r.url) == null && !Downloader.isHlsUrl(r.url, null)) ui.videoRequest.value = VideoRequest(r.url)
+                        else ui.pendingDownload.value = r
+                    },
                     onOpenVault = { ui.tab.intValue = UiState.TAB_VAULT },
                 )
                 UiState.TAB_VAULT -> VaultScreen()
@@ -102,6 +108,20 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         )
     }
 
+    // ---------------------------------------------- video page (YouTube, Facebook, TikTok…)
+    ui.videoRequest.value?.let { vr ->
+        VideoDialog(
+            req = vr,
+            onDismiss = { ui.videoRequest.value = null },
+            onStarted = { toVault ->
+                ui.videoRequest.value = null
+                ui.tab.intValue = UiState.TAB_DOWNLOADS
+                scope.launch { ui.snackbar.showSnackbar(if (toVault) "بدأ تحميل الفيديو للخزنة 🔒" else "بدأ تحميل الفيديو") }
+            },
+            onFallback = { r -> ui.videoRequest.value = null; ui.pendingDownload.value = r },
+        )
+    }
+
     // ---------------------------------------------- files shared into the app
     if (ui.sharedUris.value.isNotEmpty()) {
         ImportSharedDialog(ui.sharedUris.value) { ui.sharedUris.value = emptyList() }
@@ -112,15 +132,18 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     LaunchedEffect(clip) {
         if (clip != null) {
             val direct = MediaSniffer.kind(clip) != null
+            val video = VideoExtractor.isVideoPage(clip)
             val r = ui.snackbar.showSnackbar(
                 "لقيت لينك منسوخ: ${clip.take(48)}",
-                actionLabel = if (direct) "حمّله" else "افتحه",
+                actionLabel = if (direct || video) "حمّله" else "افتحه",
                 withDismissAction = true,
                 duration = SnackbarDuration.Long,
             )
             ui.clipLink.value = null
             if (r == SnackbarResult.ActionPerformed) {
-                if (direct) {
+                if (video) {
+                    ui.videoRequest.value = VideoRequest(clip)
+                } else if (direct) {
                     ui.pendingDownload.value = DownloadRequest(clip, URLUtil.guessFileName(clip, null, null))
                 } else {
                     browser.newTab(clip)

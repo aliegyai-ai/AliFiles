@@ -85,6 +85,7 @@ class BrowserController(private val activity: Activity) {
     val history = mutableStateListOf<HistoryEntry>()
 
     var onDownloadRequest: ((DownloadRequest) -> Unit)? = null
+    var onVideoRequest: ((com.ali.files.download.VideoRequest) -> Unit)? = null
     var onLongPress: ((LongPress) -> Unit)? = null
     var launchFileChooser: ((Intent) -> Unit)? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
@@ -255,6 +256,13 @@ class BrowserController(private val activity: Activity) {
                 onDownloadRequest?.invoke(DownloadRequest(url, name, mime, size, headersFor(url, ua, tab?.url?.value)))
             }
         }
+    }
+
+    /** Hands the current page to yt-dlp (YouTube, Facebook, TikTok…), with the browser's login cookies. */
+    fun requestVideo(tab: BrowserTab) {
+        val url = tab.url.value
+        if (!url.startsWith("http")) return
+        onVideoRequest?.invoke(com.ali.files.download.VideoRequest(url, headersFor(url, tab.webView.settings.userAgentString, null)))
     }
 
     private fun saveDataUrl(url: String) {

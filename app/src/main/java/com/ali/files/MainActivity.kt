@@ -19,6 +19,8 @@ import androidx.fragment.app.FragmentActivity
 import com.ali.files.browser.BrowserController
 import com.ali.files.browser.MediaSniffer
 import com.ali.files.download.DownloadRequest
+import com.ali.files.download.VideoExtractor
+import com.ali.files.download.VideoRequest
 import com.ali.files.ui.AppRoot
 import com.ali.files.ui.AppTheme
 import com.ali.files.ui.UiState
@@ -41,6 +43,7 @@ class MainActivity : FragmentActivity() {
 
         browser = BrowserController(this).apply {
             onDownloadRequest = { ui.pendingDownload.value = it }
+            onVideoRequest = { ui.videoRequest.value = it }
             onLongPress = { ui.longPress.value = it }
             launchFileChooser = { intent -> Vault.allowLeave = true; fileChooser.launch(intent) }
         }
@@ -125,7 +128,10 @@ class MainActivity : FragmentActivity() {
                 } else if (text != null) {
                     val url = findUrl(text) ?: return
                     AppSettings.lastClip = url
-                    if (MediaSniffer.kind(url) != null) {
+                    if (VideoExtractor.isVideoPage(url)) {
+                        ui.videoRequest.value = VideoRequest(url)
+                        ui.tab.intValue = UiState.TAB_DOWNLOADS
+                    } else if (MediaSniffer.kind(url) != null) {
                         ui.pendingDownload.value = DownloadRequest(url, URLUtil.guessFileName(url, null, null))
                         ui.tab.intValue = UiState.TAB_DOWNLOADS
                     } else {

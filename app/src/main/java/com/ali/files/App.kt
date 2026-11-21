@@ -3,6 +3,7 @@ package com.ali.files
 import android.app.Application
 import android.content.Context
 import com.ali.files.download.Downloader
+import com.ali.files.download.VideoExtractor
 import com.ali.files.util.AppSettings
 import com.ali.files.util.Notifications
 import com.ali.files.vault.Vault
@@ -14,6 +15,7 @@ class App : Application() {
         Notifications.createChannels(this)
         Vault.init(this)
         Downloader.init(this)
+        VideoExtractor.init(this)
     }
 }
 

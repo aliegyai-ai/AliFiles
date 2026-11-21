@@ -163,9 +163,12 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
             IconButton(enabled = tab?.canForward?.value == true, onClick = { tab?.webView?.goForward() }) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "قدام") }
             IconButton(onClick = { c.load("") }) { Icon(Icons.Filled.Home, "الرئيسية") }
             val mediaCount = tab?.media?.size ?: 0
-            IconButton(onClick = { tab?.let { c.sniffDom(it) }; showMedia = true }) {
+            val videoSite = tab?.url?.value?.let { com.ali.files.download.VideoExtractor.isVideoPage(it) } == true
+            IconButton(onClick = {
+                if (videoSite && tab != null) c.requestVideo(tab) else { tab?.let { c.sniffDom(it) }; showMedia = true }
+            }) {
                 BadgedBox(badge = { if (mediaCount > 0) Badge { Text("$mediaCount") } }) {
-                    Icon(Icons.Filled.VideoLibrary, "الوسائط", tint = if (mediaCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Filled.VideoLibrary, "الوسائط", tint = if (mediaCount > 0 || videoSite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             IconButton(onClick = { showTabs = true }) {
@@ -195,6 +198,7 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
                             trailingIcon = { Checkbox(checked = tab.desktop.value, onCheckedChange = null) },
                             onClick = { menu = false; c.setDesktop(tab, !tab.desktop.value) },
                         )
+                        DropdownMenuItem(text = { Text("حمّل الفيديو من الصفحة دي") }, leadingIcon = { Icon(Icons.Filled.VideoLibrary, null) }, onClick = { menu = false; c.requestVideo(tab) })
                         DropdownMenuItem(text = { Text("حمّل الرابط ده") }, leadingIcon = { Icon(Icons.Filled.Download, null) }, onClick = { menu = false; c.requestDownload(tab.url.value, tab) })
                         DropdownMenuItem(text = { Text("مشاركة الرابط") }, leadingIcon = { Icon(Icons.Filled.Share, null) }, onClick = {
                             menu = false
@@ -325,6 +329,14 @@ private fun MediaSheet(c: BrowserController, tab: BrowserTab, onDismiss: () -> U
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
+        androidx.compose.material3.Button(
+            onClick = { onDismiss(); c.requestVideo(tab) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        ) {
+            Icon(Icons.Filled.Download, null)
+            Spacer(Modifier.width(8.dp))
+            Text("استخرج فيديو الصفحة (يوتيوب، فيسبوك، تيك توك…)")
+        }
         if (tab.media.isEmpty()) {
             Text("لسه مفيش وسائط", Modifier.padding(24.dp).fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

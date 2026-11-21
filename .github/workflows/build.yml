@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,7 +17,18 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - run: chmod +x gradlew && ./gradlew assembleRelease --stacktrace
+      - name: Build
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log
+      - name: Report build errors as a commit comment
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '```'; grep -E "^e: |error:|What went wrong|Could not|FAILED|> " build.log | grep -v "^> Task" | head -80; echo '```'; } > errors.md
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@errors.md
       - uses: actions/upload-artifact@v4
         with:
           name: AliFiles-apk

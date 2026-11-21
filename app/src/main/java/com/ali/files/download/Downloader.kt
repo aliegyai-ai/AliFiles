@@ -70,6 +70,7 @@ object Downloader {
 
     private val stateFile get() = File(app.filesDir, "downloads.json")
     private fun partFile(id: Long) = File(app.getExternalFilesDir(null) ?: app.filesDir, "partial/$id.part")
+    private fun videoDir(id: Long) = File(app.getExternalFilesDir(null) ?: app.filesDir, "partial/v$id")
 
     fun init(c: Context) {
         app = c.applicationContext
@@ -114,8 +115,24 @@ object Downloader {
         return id
     }
 
+    fun enqueueVideo(url: String, title: String, height: Int?, headers: Map<String, String>, toVault: Boolean): Long {
+        val id = System.currentTimeMillis() * 10 + Random.nextInt(10)
+        val audio = height == null
+        val item = DownloadItem(
+            id = id, url = url, fileName = sanitizeFileName(title) + if (audio) ".mp3" else ".mp4",
+            mime = if (audio) "audio/mpeg" else "video/mp4", toVault = toVault, headers = headers,
+            ytdlp = true, ytFormat = VideoExtractor.formatFor(height), audioOnly = audio,
+            note = if (audio) "صوت بس" else "فيديو ${height}p",
+        )
+        _items.update { listOf(item) + it }
+        save()
+        schedule()
+        return id
+    }
+
     fun pause(id: Long) {
         update(id) { if (it.active) it.copy(status = DStatus.PAUSED, speed = 0) else it }
+        if (get(id)?.ytdlp == true) VideoExtractor.cancel(id)
         jobs.remove(id)?.cancel()
         save()
         schedule()
@@ -131,9 +148,11 @@ object Downloader {
     fun resumeAll() = _items.value.filter { it.status == DStatus.PAUSED }.forEach { resume(it.id) }
 
     fun remove(id: Long, deleteFile: Boolean) {
+        if (get(id)?.ytdlp == true) VideoExtractor.cancel(id)
         jobs.remove(id)?.cancel()
         val item = get(id)
         partFile(id).delete()
+        videoDir(id).deleteRecursively()
         if (deleteFile && item?.savedUri != null) runCatching { app.contentResolver.delete(Uri.parse(item.savedUri), null, null) }
         _items.update { l -> l.filterNot { it.id == id } }
         save()
@@ -193,6 +212,12 @@ object Downloader {
     private suspend fun run(id: Long) {
         val item = get(id) ?: return
         partFile(id).parentFile?.mkdirs()
+        if (item.ytdlp) {
+            val out = runVideo(id)
+            finish(id, out)
+            videoDir(id).deleteRecursively()
+            return
+        }
         if (!item.hls && item.segments.isEmpty()) probe(id)
         if (get(id)?.hls == true) runHls(id) else runHttp(id)
         finish(id)
@@ -466,11 +491,35 @@ object Downloader {
         update(id) { it.copy(total = it.downloaded, speed = 0) }
     }
 
+    // ---------------------------------------------------------------- yt-dlp
+
+    private suspend fun runVideo(id: Long): File = withContext(Dispatchers.IO) {
+        val item = get(id) ?: throw IOException("التحميل اتشال")
+        val dir = videoDir(id).apply { mkdirs() }
+        var lastSave = 0L
+        val out = VideoExtractor.download(item, dir) { percent, total, speed, note ->
+            update(id) {
+                val t = if (total > 0) total else it.total
+                it.copy(
+                    total = t,
+                    downloaded = if (t > 0) (t * percent / 100f).toLong() else it.downloaded,
+                    speed = speed,
+                    note = note ?: (if (it.audioOnly) "صوت بس" else "فيديو"),
+                )
+            }
+            val now = System.currentTimeMillis()
+            if (now - lastSave > 2000) { lastSave = now; save() }
+        }
+        val name = sanitizeFileName(out.name)
+        update(id) { it.copy(fileName = name, mime = mimeOf(name), total = out.length(), downloaded = out.length(), note = null) }
+        out
+    }
+
     // ---------------------------------------------------------------- finish
 
-    private suspend fun finish(id: Long) = withContext(Dispatchers.IO) {
+    private suspend fun finish(id: Long, src: File? = null) = withContext(Dispatchers.IO) {
         val item = get(id) ?: return@withContext
-        val part = partFile(id)
+        val part = src ?: partFile(id)
         val mime = when {
             item.hls -> "video/mp2t"
             item.mime.isNullOrBlank() || item.mime == "application/octet-stream" || item.mime.startsWith("text/plain") -> mimeOf(item.fileName)
