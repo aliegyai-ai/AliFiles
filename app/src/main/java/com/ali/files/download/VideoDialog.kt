@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -101,6 +102,7 @@ fun VideoDialog(
     }
 
     val scheme = MaterialTheme.colorScheme
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).navigationBarsPadding().padding(bottom = 16.dp),
@@ -186,7 +188,7 @@ fun VideoDialog(
                     // where to save
                     Text("الحفظ في", fontSize = 13.sp, color = scheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SaveChoice("التنزيلات", Icons.Filled.Folder, !toVault, Modifier.weight(1f)) { toVault = false }
+                        SaveChoice("المكتبة", Icons.Filled.Folder, !toVault, Modifier.weight(1f)) { toVault = false }
                         SaveChoice("الخزنة", Icons.Filled.Lock, toVault, Modifier.weight(1f)) { toVault = true }
                     }
 
@@ -204,6 +206,32 @@ fun VideoDialog(
                         Icon(Icons.Filled.Download, null)
                         Spacer(Modifier.width(8.dp))
                         Text(startLabel(choice, s.meta), fontWeight = FontWeight.Bold)
+                    }
+                    // play right away, without downloading
+                    OutlinedButton(
+                        enabled = choice != null && s.meta.streams.isNotEmpty(),
+                        onClick = {
+                            val c = choice ?: return@OutlinedButton
+                            val pick = VideoExtractor.streamFor(s.meta, if (c == AUDIO) null else c)
+                            if (pick == null) {
+                                android.widget.Toast.makeText(ctx, "مقدرتش ألاقي رابط تشغيل مباشر للجودة دي", android.widget.Toast.LENGTH_SHORT).show()
+                                return@OutlinedButton
+                            }
+                            com.ali.files.player.PlayerHub.playStream(
+                                com.ali.files.player.Track(
+                                    id = req.url + "#" + c, uri = android.net.Uri.parse(req.url), title = s.meta.title,
+                                    subtitle = s.meta.uploader.ifBlank { s.meta.site }, isVideo = c != AUDIO, artwork = s.meta.thumbnail,
+                                ),
+                                pick,
+                            )
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("شغّل من غير تحميل", fontWeight = FontWeight.Bold)
                     }
                     TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("إلغاء") }
                 }

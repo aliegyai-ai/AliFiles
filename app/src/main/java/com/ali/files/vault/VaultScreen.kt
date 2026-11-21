@@ -427,9 +427,18 @@ private fun VaultContent() {
                                 } else if (kindOf(e.mime, e.name) == FileKind.IMAGE) {
                                     viewing = e
                                 } else {
+                                    val k = kindOf(e.mime, e.name)
                                     scope.launch {
-                                        runCatching { openExternally(ctx, e, Vault.decryptToCache(e), share = false) }
-                                            .onFailure { toast(it.message ?: "تعذر فتح الملف") }
+                                        runCatching {
+                                            val f = Vault.decryptToCache(e)
+                                            if (k == FileKind.VIDEO || k == FileKind.AUDIO) {
+                                                // vault videos / songs play inside the app — they never leave it
+                                                com.ali.files.player.PlayerHub.play(listOf(com.ali.files.player.Track(
+                                                    id = "vault:" + e.id, uri = android.net.Uri.fromFile(f), title = e.name.substringBeforeLast('.'),
+                                                    subtitle = "من الخزنة 🔒", isVideo = k == FileKind.VIDEO,
+                                                )))
+                                            } else openExternally(ctx, e, f, share = false)
+                                        }.onFailure { toast(it.message ?: "تعذر فتح الملف") }
                                     }
                                 }
                             },

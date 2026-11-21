@@ -154,6 +154,7 @@ object Downloader {
         partFile(id).delete()
         videoDir(id).deleteRecursively()
         if (deleteFile && item?.savedUri != null) runCatching { app.contentResolver.delete(Uri.parse(item.savedUri), null, null) }
+        if (deleteFile && item?.libraryPath != null) { java.io.File(item.libraryPath).delete(); com.ali.files.library.Library.refresh() }
         _items.update { l -> l.filterNot { it.id == id } }
         save()
         schedule()
@@ -167,6 +168,17 @@ object Downloader {
     /** Moves a finished download from Download/AliFiles into the encrypted vault. */
     suspend fun moveToVault(id: Long) {
         val item = get(id) ?: return
+        item.libraryPath?.let { path ->
+            val f = java.io.File(path)
+            if (f.exists()) {
+                Vault.importFile(f, item.fileName, item.mime ?: mimeOf(item.fileName))
+                f.delete()
+                com.ali.files.library.Library.refresh()
+            }
+            update(id) { it.copy(libraryPath = null, savedInVault = true) }
+            save()
+            return
+        }
         val uri = item.savedUri?.let { Uri.parse(it) } ?: return
         Vault.importUri(uri, item.fileName)
         runCatching { app.contentResolver.delete(uri, null, null) }
@@ -532,11 +544,11 @@ object Downloader {
             save()
             Notifications.notifyDone(app, id, "اتحمل في الخزنة 🔒", item.fileName)
         } else {
-            val uri = FileStore.saveToDownloads(app, part, item.fileName, mime)
-            part.delete()
-            update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, savedUri = uri.toString(), mime = mime) }
+            // stays inside the app (the library); the user saves it to the phone only if they want
+            val dest = com.ali.files.library.Library.add(part, item.fileName)
+            update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, libraryPath = dest.absolutePath, fileName = dest.name, mime = mime) }
             save()
-            Notifications.notifyDone(app, id, "اكتمل التحميل", "${item.fileName} • ${formatBytes(get(id)?.downloaded ?: 0)}")
+            Notifications.notifyDone(app, id, "اتحمّل في المكتبة", "${dest.name} • ${formatBytes(get(id)?.downloaded ?: 0)}")
         }
     }
 }

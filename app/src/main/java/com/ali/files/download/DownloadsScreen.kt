@@ -172,6 +172,10 @@ private fun DownloadRow(d: DownloadItem, onOpenVault: () -> Unit) {
                 DStatus.FAILED -> IconButton(onClick = { Downloader.resume(d.id) }) { Icon(Icons.Filled.Refresh, "إعادة المحاولة") }
                 DStatus.COMPLETED -> if (d.savedInVault) {
                     IconButton(onClick = onOpenVault) { Icon(Icons.Filled.Lock, "في الخزنة", tint = MaterialTheme.colorScheme.secondary) }
+                } else if (d.libraryPath != null) {
+                    IconButton(onClick = { openFromLibrary(ctx, d) }) {
+                        Icon(Icons.Filled.PlayArrow, "تشغيل", tint = MaterialTheme.colorScheme.primary)
+                    }
                 } else if (d.savedUri != null) {
                     IconButton(onClick = { FileStore.open(ctx, Uri.parse(d.savedUri), d.mime) }) { Icon(Icons.Filled.Folder, "فتح") }
                 }
@@ -179,6 +183,27 @@ private fun DownloadRow(d: DownloadItem, onOpenVault: () -> Unit) {
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "خيارات") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    if (d.status == DStatus.COMPLETED && d.libraryPath != null) {
+                        DropdownMenuItem(text = { Text("احفظ على الموبايل (التنزيلات)") }, onClick = {
+                            menu = false
+                            scope.launch {
+                                runCatching { FileStore.saveToDownloads(ctx, java.io.File(d.libraryPath), d.fileName, d.mime ?: com.ali.files.util.mimeOf(d.fileName)) }
+                                    .onSuccess { Toast.makeText(ctx, "اتحفظ في Download/AliFiles", Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(ctx, it.message ?: "تعذر الحفظ", Toast.LENGTH_SHORT).show() }
+                            }
+                        })
+                        DropdownMenuItem(text = { Text("مشاركة") }, onClick = {
+                            menu = false; FileStore.share(ctx, com.ali.files.library.Library.uriFor(java.io.File(d.libraryPath)), d.mime)
+                        })
+                        DropdownMenuItem(text = { Text("انقله للخزنة 🔒") }, onClick = {
+                            menu = false
+                            scope.launch {
+                                runCatching { Downloader.moveToVault(d.id) }
+                                    .onSuccess { Toast.makeText(ctx, "اتنقل للخزنة", Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(ctx, it.message ?: "تعذر النقل", Toast.LENGTH_SHORT).show() }
+                            }
+                        })
+                    }
                     if (d.status == DStatus.COMPLETED && d.savedUri != null) {
                         DropdownMenuItem(text = { Text("مشاركة") }, onClick = { menu = false; FileStore.share(ctx, Uri.parse(d.savedUri), d.mime) })
                         DropdownMenuItem(text = { Text("انقله للخزنة 🔒") }, onClick = {
@@ -195,7 +220,7 @@ private fun DownloadRow(d: DownloadItem, onOpenVault: () -> Unit) {
                         ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("url", d.url))
                     })
                     DropdownMenuItem(text = { Text("شيله من القائمة") }, onClick = { menu = false; Downloader.remove(d.id, deleteFile = false) })
-                    if (d.status == DStatus.COMPLETED && d.savedUri != null) {
+                    if (d.status == DStatus.COMPLETED && (d.savedUri != null || d.libraryPath != null)) {
                         DropdownMenuItem(
                             text = { Text("امسح الملف كمان", color = MaterialTheme.colorScheme.error) },
                             leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
@@ -228,7 +253,11 @@ private fun statusLine(d: DownloadItem): String {
         }
         DStatus.PAUSED -> "متوقف • " + (if (d.hls) "جزء ${d.hlsIndex} من ${d.hlsTotal}" else size)
         DStatus.FAILED -> "فشل: ${d.error ?: "خطأ غير معروف"}"
-        DStatus.COMPLETED -> formatBytes(d.downloaded) + if (d.savedInVault) " • في الخزنة 🔒" else " • Download/AliFiles"
+        DStatus.COMPLETED -> formatBytes(d.downloaded) + when {
+            d.savedInVault -> " • في الخزنة 🔒"
+            d.libraryPath != null -> " • في المكتبة"
+            else -> " • Download/AliFiles"
+        }
     }
 }
 
@@ -288,7 +317,7 @@ fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: (toVa
                 Slider(value = threads, onValueChange = { threads = it }, valueRange = 1f..16f, steps = 14)
                 Text("الحفظ في:", fontSize = 13.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = !toVault, onClick = { toVault = false }); Text("التنزيلات")
+                    RadioButton(selected = !toVault, onClick = { toVault = false }); Text("المكتبة")
                     Spacer(Modifier.width(12.dp))
                     RadioButton(selected = toVault, onClick = { toVault = true }); Text("الخزنة 🔒")
                 }
@@ -302,4 +331,22 @@ fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: (toVa
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
+}
+
+/** Plays a finished download in the app's player, or opens it with another app if it isn't audio/video. */
+private fun openFromLibrary(ctx: android.content.Context, d: DownloadItem) {
+    val f = java.io.File(d.libraryPath ?: return)
+    if (!f.exists()) { Toast.makeText(ctx, "الملف مش موجود في المكتبة", Toast.LENGTH_SHORT).show(); return }
+    when (kindOf(d.mime, f.name)) {
+        com.ali.files.util.FileKind.VIDEO, com.ali.files.util.FileKind.AUDIO -> {
+            val kind = kindOf(d.mime, f.name)
+            com.ali.files.player.PlayerHub.play(listOf(
+                com.ali.files.player.Track(
+                    id = f.absolutePath, uri = Uri.fromFile(f), title = f.nameWithoutExtension,
+                    subtitle = formatBytes(f.length()), isVideo = kind == com.ali.files.util.FileKind.VIDEO, libraryPath = f.absolutePath,
+                ),
+            ))
+        }
+        else -> FileStore.open(ctx, com.ali.files.library.Library.uriFor(f), d.mime)
+    }
 }

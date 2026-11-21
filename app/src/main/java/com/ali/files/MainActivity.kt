@@ -74,8 +74,34 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
+        // a video stops when you leave the app, unless «keep sound in background» is on or it's in picture-in-picture
+        if (com.ali.files.player.isVideoShowing() && !isInPictureInPictureMode && !com.ali.files.player.PlayerHub.videoBackground.value) {
+            com.ali.files.player.PlayerHub.player.pause()
+        }
+        com.ali.files.player.PlayerHub.savePosition()
         browser.saveSession()
         if (!isChangingConfigurations) Vault.onAppStop()
+    }
+
+    /** Small floating video window while using other apps. */
+    fun enterPip() {
+        val vs = com.ali.files.player.PlayerHub.player.videoSize
+        val w = if (vs.width > 0) vs.width else 16
+        val h = if (vs.height > 0) vs.height else 9
+        val ratio = (w.toFloat() / h).coerceIn(0.42f, 2.38f)
+        val r = if (w >= h) android.util.Rational((ratio * 1000).toInt(), 1000) else android.util.Rational(1000, (1000 / ratio).toInt())
+        runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(r).build()) }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // pressing Home during a playing video → it keeps going in a small window
+        if (com.ali.files.player.isVideoShowing() && com.ali.files.player.PlayerHub.isPlaying.value && !com.ali.files.player.PlayerHub.videoBackground.value) enterPip()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        com.ali.files.player.PlayerHub.inPip.value = isInPictureInPictureMode
     }
 
     override fun onDestroy() {
@@ -114,6 +140,16 @@ class MainActivity : FragmentActivity() {
         when (intent.action) {
             Intent.ACTION_VIEW -> {
                 val data = intent.dataString ?: return
+                val type = intent.type ?: contentResolver.getType(intent.data ?: Uri.EMPTY) ?: ""
+                if (!data.startsWith("http") && (type.startsWith("video/") || type.startsWith("audio/"))) {
+                    // «Open with حمّل» from another app → play it here
+                    val u = intent.data ?: return
+                    val name = com.ali.files.util.FileStore.displayName(this, u)
+                    com.ali.files.player.PlayerHub.play(listOf(com.ali.files.player.Track(
+                        id = data, uri = u, title = name.substringBeforeLast('.'), subtitle = "", isVideo = type.startsWith("video/"),
+                    )))
+                    return
+                }
                 if (data.startsWith("http")) {
                     browser.newTab(data)
                     ui.tab.intValue = UiState.TAB_BROWSER

@@ -28,6 +28,21 @@ data class VideoMeta(
     val tags: List<String>,
     val heights: List<VideoOption>,
     val audio: VideoOption,
+    /** direct links yt-dlp found, for playing online without downloading */
+    val streams: List<StreamFormat> = emptyList(),
+    val headers: Map<String, String> = emptyMap(),
+)
+
+data class StreamFormat(
+    val url: String,
+    val height: Int,
+    val hasVideo: Boolean,
+    val hasAudio: Boolean,
+    val ext: String,
+    val vcodec: String,
+    val bitrate: Int,
+    val hls: Boolean,
+    val headers: Map<String, String>,
 )
 
 data class Suggestion(val audioOnly: Boolean, val height: Int?, val reason: String)
@@ -178,6 +193,22 @@ object VideoExtractor {
             tags = info.tags?.toList() ?: emptyList(),
             heights = byHeight,
             audio = VideoOption(null, audioBytes),
+            streams = formats.mapNotNull { f ->
+                val u = f.url ?: return@mapNotNull null
+                if (!u.startsWith("http")) return@mapNotNull null
+                StreamFormat(
+                    url = u,
+                    height = f.height,
+                    hasVideo = (f.vcodec ?: "none") != "none" && f.height > 0,
+                    hasAudio = (f.acodec ?: "none") != "none",
+                    ext = f.ext ?: "",
+                    vcodec = f.vcodec ?: "",
+                    bitrate = maxOf(f.tbr, f.abr),
+                    hls = u.contains(".m3u8") || (f.formatId ?: "").startsWith("hls"),
+                    headers = f.httpHeaders ?: emptyMap(),
+                )
+            },
+            headers = (info.httpHeaders ?: emptyMap()) + r.headers.filterKeys { it == "Cookie" || it == "Referer" },
         )
     }
 
@@ -228,6 +259,38 @@ object VideoExtractor {
                 videoPick("مقطع قصير، فجودة عالية مش هتفرق كتير في الحجم")
             else -> videoPick("فيديو عادي — 720p مناسبة لشاشة الموبايل وحجمها معقول")
         }
+    }
+
+    // ------------------------------------------------------------ play online (no download)
+
+    /**
+     * Picks what to stream for the chosen quality ([height] null = sound only):
+     * one file with picture+sound if there is one, else an HLS stream, else picture + sound joined in the player.
+     */
+    fun streamFor(m: VideoMeta, height: Int?): com.ali.files.player.StreamPick? {
+        val s = m.streams
+        fun hdr(f: StreamFormat?) = m.headers + (f?.headers ?: emptyMap())
+        val bestAudio = s.filter { it.hasAudio && !it.hasVideo && !it.hls }
+            .sortedWith(compareByDescending<StreamFormat> { it.ext == "m4a" }.thenByDescending { it.bitrate })
+            .firstOrNull()
+        if (height == null) {
+            val a = bestAudio ?: s.filter { it.hasAudio && !it.hls }.minByOrNull { it.height } ?: s.firstOrNull { it.hls && it.hasAudio }
+            return a?.let { com.ali.files.player.StreamPick(video = null, audio = it.url, hls = it.hls, headers = hdr(it)) }
+        }
+        val fit = { f: StreamFormat -> f.hasVideo && f.height <= height }
+        s.filter { fit(it) && it.hasAudio && !it.hls }.maxByOrNull { it.height }?.let { p ->
+            // a full file is only good if it isn't much worse than what was asked for
+            if (p.height >= minOf(height, 480)) return com.ali.files.player.StreamPick(p.url, null, false, hdr(p))
+        }
+        s.filter { fit(it) && it.hls }.maxByOrNull { it.height }?.let { h ->
+            return com.ali.files.player.StreamPick(h.url, null, true, hdr(h))
+        }
+        val v = s.filter { fit(it) && !it.hasAudio && !it.hls }
+            .sortedWith(compareByDescending<StreamFormat> { it.height }.thenByDescending { it.vcodec.startsWith("avc") }.thenByDescending { it.ext == "mp4" })
+            .firstOrNull()
+        if (v != null && bestAudio != null) return com.ali.files.player.StreamPick(v.url, bestAudio.url, false, hdr(v))
+        val any = s.filter { it.hasVideo && it.hasAudio }.maxByOrNull { it.height } ?: return null
+        return com.ali.files.player.StreamPick(any.url, null, any.hls, hdr(any))
     }
 
     // ------------------------------------------------------------ download
