@@ -1,7 +1,12 @@
-.gradle/
-build/
-local.properties
+node_modules/
+dist/
+dist-preview/
+.DS_Store
 .idea/
 *.iml
-.DS_Store
-captures/
+# android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/build/
