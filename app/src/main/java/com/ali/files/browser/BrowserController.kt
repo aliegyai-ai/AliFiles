@@ -71,6 +71,11 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     /** small screenshot for the tab switcher */
     val thumb = mutableStateOf<android.graphics.Bitmap?>(null)
 
+    /** host of the page in this tab, read by the ad blocker on a background thread */
+    @Volatile var pageHost: String? = null
+    /** opened by the page itself (window.open / target=_blank) — closed if it turns out to be an ad */
+    @Volatile var fromPopup = false
+
     /** how many videos (not images/sounds) the page has — for the badge on the download icon */
     val videoCount: Int get() = media.count { it.kind == "فيديو" || it.kind == "HLS" }
 
@@ -469,7 +474,10 @@ class BrowserController(private val activity: Activity) {
             onDownload = { src, page -> tab.lastVideoSrc = src; tab.lastVideoPage = page; downloadVideo(tab, src, page) },
             onPlaying = { src, page -> tab.lastVideoSrc = src; tab.lastVideoPage = page; tab.playing.value = true },
         ), VideoButtons.BRIDGE)
+        // ad blocker: hides ad boxes and skips YouTube ads (runs before the page's own scripts)
+        wv.addJavascriptInterface(AdFilter.Bridge(), AdFilter.BRIDGE)
         if (docStartScript) {
+            runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, AdFilter.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
         }
 
@@ -488,6 +496,16 @@ class BrowserController(private val activity: Activity) {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
                 val scheme = u.scheme?.lowercase() ?: return false
+                // redirects / pop-up tabs to ad & pop-under sites are stopped (a real tap on a link still works)
+                if ((scheme == "http" || scheme == "https") && request.isForMainFrame && AppSettings.adBlockFast &&
+                    (!request.hasGesture() || tab.fromPopup) && AdFilter.isAdPage(u.host) &&
+                    !(tab.pageHost?.let { SiteAllow.isAllowed(it) } ?: false)
+                ) {
+                    tab.blocked.intValue++
+                    AdStats.add(1)
+                    if (tab.fromPopup && !view.canGoBack()) main.post { closeTab(tab.id) }
+                    return true
+                }
                 if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) return false
                 // intent:, market:, whatsapp:, tel:, mailto: … → hand to the right app
                 try {
@@ -507,6 +525,7 @@ class BrowserController(private val activity: Activity) {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 tab.url.value = url ?: ""
+                tab.pageHost = runCatching { Uri.parse(url).host }.getOrNull()
                 tab.media.clear()
                 tab.playing.value = false
                 tab.lastVideoSrc = ""
@@ -523,7 +542,10 @@ class BrowserController(private val activity: Activity) {
                 tab.canForward.value = view.canGoForward()
                 if (!tab.incognito) addHistory(tab.title.value, tab.url.value)
                 sniffDom(tab)
-                if (!docStartScript) view.evaluateJavascript(VideoButtons.SCRIPT, null)
+                if (!docStartScript) {
+                    view.evaluateJavascript(AdFilter.SCRIPT, null)
+                    view.evaluateJavascript(VideoButtons.SCRIPT, null)
+                }
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
@@ -534,8 +556,9 @@ class BrowserController(private val activity: Activity) {
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url.toString()
-                if (AppSettings.adBlockFast && !request.isForMainFrame && AdBlocker.isBlocked(request.url.host)) {
+                if (AppSettings.adBlockFast && !request.isForMainFrame && AdFilter.shouldBlock(url, request.url.host, tab.pageHost)) {
                     main.post { tab.blocked.intValue++ }
+                    AdStats.add(1)
                     return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                 }
                 MediaSniffer.kind(url)?.let { k -> main.post { tab.addMedia(url, k) } }
@@ -549,8 +572,9 @@ class BrowserController(private val activity: Activity) {
 
             // pop-up blocker: only windows opened by a real tap become new tabs
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
-                if (!isUserGesture) { tab.blocked.intValue++; return false }
+                if (!isUserGesture) { tab.blocked.intValue++; AdStats.add(1); return false }
                 val t = newTab(null, tab.incognito)
+                t.fromPopup = true
                 val transport = resultMsg.obj as WebView.WebViewTransport
                 transport.webView = t.webView
                 resultMsg.sendToTarget()

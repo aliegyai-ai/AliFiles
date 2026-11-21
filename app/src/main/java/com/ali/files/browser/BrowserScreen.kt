@@ -142,6 +142,7 @@ import com.ali.files.ui.UiState
 import com.ali.files.util.AppSettings
 import com.ali.files.util.formatBytes
 import java.util.Calendar
+import kotlinx.coroutines.launch
 
 private fun copy(ctx: Context, text: String) {
     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("link", text))
@@ -206,6 +207,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
     var showMedia by remember { mutableStateOf(false) }
     var showLibrary by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    var showAds by remember { mutableStateOf(false) }
     var findOpen by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
     var lastBackOnHome by remember { mutableLongStateOf(0L) }
@@ -348,7 +350,9 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
         onLibrary = { showLibrary = true },
         onMedia = { tab?.let { c.sniffDom(it) }; showMedia = true },
         onOpenApp = { ui.tab.intValue = it },
+        onAds = { showAds = true },
     )
+    if (showAds) AdSheet(tab?.takeIf { !home }) { showAds = false }
     if (showTabs) TabsSheet(c) { showTabs = false }
     if (showMedia && tab != null) MediaSheet(c, tab) { showMedia = false }
     if (showLibrary) LibrarySheet(c) { showLibrary = false }
@@ -385,12 +389,85 @@ private fun BarButton(enabled: Boolean = true, onClick: () -> Unit, content: @Co
     }
 }
 
+// ============================================================ ad blocker sheet
+
+@Composable
+private fun AdSheet(tab: BrowserTab?, onDismiss: () -> Unit) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scheme = MaterialTheme.colorScheme
+    val host = tab?.pageHost?.removePrefix("www.")
+    var siteAllowed by remember { mutableStateOf(host?.let { SiteAllow.isAllowed(it) } ?: false) }
+    val on = AppSettings.adBlock.value
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = scheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(scheme.primary.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Shield, null, tint = scheme.primary)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("مانع الإعلانات", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(if (on) "شغّال" else "مقفول", color = if (on) scheme.primary else scheme.onSurfaceVariant, fontSize = 13.sp)
+                }
+                androidx.compose.material3.Switch(checked = on, onCheckedChange = { AppSettings.setAdBlock(it) })
+            }
+
+            // counters
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatBox("في الصفحة دي", "${tab?.blocked?.intValue ?: 0}", Modifier.weight(1f))
+                StatBox("من أول ما سطّبت", "%,d".format(AdStats.total.longValue), Modifier.weight(1f))
+            }
+
+            if (host != null && on) {
+                Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceContainerHigh) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("امنع الإعلانات في $host", fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("اقفله لو الموقع ده باظ أو رفض يشتغل", fontSize = 12.sp, color = scheme.onSurfaceVariant)
+                        }
+                        androidx.compose.material3.Switch(checked = !siteAllowed, onCheckedChange = { block ->
+                            SiteAllow.set(host, !block); siteAllowed = !block
+                            tab?.webView?.reload()
+                        })
+                    }
+                }
+            }
+
+            val days = if (AdFilter.lastUpdate.longValue > 0) ((System.currentTimeMillis() - AdFilter.lastUpdate.longValue) / 86_400_000L) else -1L
+            Text(
+                "%,d قاعدة من EasyList وEasyPrivacy والقايمة العربية".format(AdFilter.ruleCount.intValue) + "\n" +
+                    when { days < 0 -> "القوايم اللي جوه التطبيق (بتتحدث لوحدها كل أسبوع)"; days == 0L -> "اتحدثت النهارده"; else -> "اتحدثت من $days يوم" },
+                fontSize = 12.sp, color = scheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                enabled = !AdFilter.updating.value,
+                onClick = { scope.launch { AdFilter.update() } },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.Refresh, null); Spacer(Modifier.width(6.dp))
+                Text(if (AdFilter.updating.value) "بيحدّث القوايم…" else "حدّث القوايم دلوقتي")
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatBox(label: String, value: String, modifier: Modifier) {
+    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier) {
+        Column(Modifier.padding(12.dp)) {
+            Text(value, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = MaterialTheme.colorScheme.primary)
+            Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 // ============================================================ menu (grid of icons in a bottom sheet)
 
 @Composable
 private fun MenuSheet(
     c: BrowserController, tab: BrowserTab?, home: Boolean,
     onDismiss: () -> Unit, onFind: () -> Unit, onLibrary: () -> Unit, onMedia: () -> Unit, onOpenApp: (Int) -> Unit,
+    onAds: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val scheme = MaterialTheme.colorScheme
@@ -426,6 +503,7 @@ private fun MenuSheet(
                 }
                 add(MenuItem("المفضلة والسجل", Icons.Filled.History) { act(onLibrary) })
                 add(MenuItem("الرئيسية", Icons.Filled.Home) { act { c.goHome() } })
+                add(MenuItem("الإعلانات", Icons.Filled.Shield, selected = AppSettings.adBlock.value && (page?.pageHost?.let { !SiteAllow.isAllowed(it) } ?: true)) { act(onAds) })
                 if (page != null) {
                     add(MenuItem("بحث في الصفحة", Icons.Filled.Search) { act(onFind) })
                     add(MenuItem("وسائط الصفحة", Icons.Filled.VideoLibrary) { act(onMedia) })

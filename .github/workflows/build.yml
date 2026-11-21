@@ -22,6 +22,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       # QuickJS: the JavaScript engine yt-dlp needs for YouTube. Built for Android here and shipped
       # inside the APK as libqjs.so (Android only allows running programs that come as native libraries).
+      # fresh ad-blocking lists inside the APK, so the blocker is strong from the first launch
+      - name: Download ad-blocking lists
+        continue-on-error: true
+        run: |
+          mkdir -p app/src/main/assets/filters
+          cd app/src/main/assets/filters
+          curl -fsSL -o easylist.txt https://easylist.to/easylist/easylist.txt || true
+          curl -fsSL -o easyprivacy.txt https://easylist.to/easylist/easyprivacy.txt || true
+          curl -fsSL -o liste_ar.txt https://easylist-downloads.adblockplus.org/Liste_AR.txt || true
+          curl -fsSL -o cookies.txt https://secure.fanboy.co.nz/fanboy-cookiemonster.txt || true
+          curl -fsSL -o pgl.txt "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext" || true
+          ls -la
       - name: Build QuickJS for Android
         continue-on-error: true
         run: |

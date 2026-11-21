@@ -1,10 +1,8 @@
 package com.ali.files.browser
 
-import java.util.Locale
-
-/** Blocks requests to well-known ad / tracking / pop-under hosts (and their sub-domains). */
-object AdBlocker {
-    private val hosts: Set<String> = setOf(
+/** Rules that work even before the big lists are loaded, plus things the lists don't cover (YouTube). */
+object BuiltinAds {
+    val hosts: Set<String> = setOf(
         // ad networks
         "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
         "pagead2.googlesyndication.com", "googletagservices.com", "adnxs.com", "adsrvr.org",
@@ -30,37 +28,26 @@ object AdBlocker {
         "zedo.com", "yieldlab.net", "serving-sys.com", "flashtalking.com",
     )
 
-    fun isBlocked(host: String?): Boolean {
-        if (host.isNullOrEmpty()) return false
-        var h = host.lowercase(Locale.US)
-        while (true) {
-            if (h in hosts) return true
-            val i = h.indexOf('.')
-            if (i < 0 || i == h.length - 1) return false
-            h = h.substring(i + 1)
-            if (!h.contains('.')) return false
-        }
-    }
-}
+    /** Ad requests that live on normal domains (so domain blocking can't catch them). */
+    val urlParts = listOf(
+        "youtube.com/pagead/", "youtube.com/api/stats/ads", "youtube.com/ptracking", "youtube.com/get_midroll_",
+        "/youtubei/v1/player/ad_break", "facebook.com/tr?", "/ads/ga-audiences",
+    )
 
-/** Recognises media URLs while pages load. */
-object MediaSniffer {
-    private val video = setOf("mp4", "webm", "mkv", "mov", "3gp", "flv", "avi")
-    private val audio = setOf("mp3", "m4a", "aac", "ogg", "opus", "wav", "flac")
+    val GENERIC_SELECTORS = listOf(
+        "ins.adsbygoogle", "[id^='google_ads_']", "[id^='div-gpt-ad']", "iframe[src*='doubleclick.net']",
+        "iframe[src*='googlesyndication']", "[class*='adsbygoogle']", "[data-ad-slot]", "[data-google-query-id]",
+        ".taboola", "[id^='taboola-']", ".OUTBRAIN", "[data-widget-id^='outbrain']", "amp-ad", "amp-embed[type='taboola']",
+    )
 
-    fun kind(url: String): String? {
-        if (!url.startsWith("http")) return null
-        val path = url.substringBefore('?').substringBefore('#').lowercase(Locale.US)
-        val ext = path.substringAfterLast('/').substringAfterLast('.', "")
-        return when {
-            ext == "m3u8" -> "HLS"
-            ext in video -> "فيديو"
-            ext in audio -> "صوت"
-            else -> null
-        }
-    }
+    val GENERIC_CSS: String = GENERIC_SELECTORS.joinToString(",") + "{display:none!important}"
 
-    const val DOM_SCRIPT =
-        "(function(){var s={};document.querySelectorAll('video,audio,source').forEach(function(e){" +
-            "var u=e.currentSrc||e.src;if(u&&u.indexOf('http')===0)s[u]=1});return Object.keys(s);})()"
+    val YOUTUBE_SELECTORS = listOf(
+        "ytm-promoted-sparkles-web-renderer", "ytm-promoted-video-renderer", "ytm-companion-ad-renderer",
+        "ad-slot-renderer", "ytm-ad-slot-renderer", "ytd-ad-slot-renderer", "#player-ads", "#masthead-ad",
+        "ytd-promoted-sparkles-web-renderer", "ytd-promoted-video-renderer", "ytd-banner-promo-renderer",
+        "ytm-mealbar-promo-renderer", "ytm-statement-banner-renderer", ".ytp-ad-overlay-container",
+        ".ytp-ad-module .ytp-ad-image-overlay", "ytd-display-ad-renderer", "ytd-in-feed-ad-layout-renderer",
+        "ytm-promoted-item-renderer", "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-ads']",
+    )
 }

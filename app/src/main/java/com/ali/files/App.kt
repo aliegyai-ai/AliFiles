@@ -16,6 +16,9 @@ class App : Application() {
         Vault.init(this)
         Downloader.init(this)
         VideoExtractor.init(this)
+        com.ali.files.browser.SiteAllow.init(this)
+        com.ali.files.browser.AdStats.init(this)
+        com.ali.files.browser.AdFilter.init(this)
     }
 }
 
