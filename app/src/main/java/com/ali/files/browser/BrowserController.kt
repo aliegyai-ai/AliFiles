@@ -82,6 +82,10 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     var openerId: Long = -1
     /** restored from last time but not loaded yet (loads when you open the tab) */
     var pendingUrl: String? = null
+    /** a site opened from the start page: its first page in this tab's history (back from it → start page) */
+    var homeBarrier = -1
+    /** a site is loading from the start page — the start page stays until the new page shows (no flash of the old one) */
+    val openingFromHome = mutableStateOf(false)
     /** find in page: (current match, total) */
     val findResult = mutableStateOf(0 to 0)
 
@@ -252,7 +256,7 @@ class BrowserController(private val activity: Activity) {
     }
 
     /** Shows the start page in the current tab (the website stays behind it, so «back» returns to it). */
-    fun goHome() { current?.let { captureThumb(it); it.home.value = true } }
+    fun goHome() { current?.let { captureThumb(it); it.openingFromHome.value = false; it.home.value = true } }
 
     /** Leaves the start page and shows the website that was open in this tab, if any. */
     fun leaveHome(tab: BrowserTab): Boolean {
@@ -308,8 +312,25 @@ class BrowserController(private val activity: Activity) {
         val tab = current ?: newTab(null)
         val u = toUrl(input)
         if (u == HOME) { tab.home.value = true; return }
-        tab.home.value = false
+        tab.pendingUrl = null
+        if (tab.home.value) {
+            // from the start page: this site starts a fresh trail in the tab, and the old page isn't shown meanwhile
+            tab.homeBarrier = if (tab.url.value.isBlank()) 0 else tab.webView.copyBackForwardList().currentIndex + 1
+            if (tab.url.value.isBlank()) tab.home.value = false else tab.openingFromHome.value = true
+        }
         tab.webView.loadUrl(u)
+    }
+
+    /** Back inside a tab: the previous page, but never past the start page the site was opened from. */
+    fun back(tab: BrowserTab) {
+        val idx = tab.webView.copyBackForwardList().currentIndex
+        if (tab.homeBarrier >= 0 && idx <= tab.homeBarrier) goHome()
+        else if (tab.webView.canGoBack()) tab.webView.goBack()
+        else goHome()
+    }
+
+    private fun showOpenedPage(tab: BrowserTab) {
+        if (tab.openingFromHome.value) { tab.openingFromHome.value = false; tab.home.value = false }
     }
 
     fun toUrl(input: String): String {
@@ -638,7 +659,11 @@ class BrowserController(private val activity: Activity) {
                 if (tab.id == currentId.longValue) barsHidden.value = false
             }
 
+            // the new page has drawn something → now swap the start page for it
+            override fun onPageCommitVisible(view: WebView, url: String?) { showOpenedPage(tab) }
+
             override fun onPageFinished(view: WebView, url: String?) {
+                showOpenedPage(tab)
                 tab.url.value = url ?: tab.url.value
                 tab.title.value = view.title ?: tab.url.value
                 tab.canBack.value = view.canGoBack()

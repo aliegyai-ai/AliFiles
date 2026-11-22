@@ -223,8 +223,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
         when {
             findOpen -> { findOpen = false; t?.webView?.clearMatches() }
             t == null -> {}
-            !t.home.value && t.webView.canGoBack() -> t.webView.goBack()
-            !t.home.value -> c.goHome()
+            !t.home.value -> c.back(t)
             else -> {
                 val now = System.currentTimeMillis()
                 if (now - lastBackOnHome < 2000) (ctx as? android.app.Activity)?.moveTaskToBack(true)
@@ -249,6 +248,11 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (home) {
                 StartPage(c, ui)
+                // a site is opening from here: show its progress until it appears
+                if (tab?.openingFromHome?.value == true) LinearProgressIndicator(
+                    progress = { (tab.progress.intValue / 100f).coerceAtLeast(0.05f) },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp),
+                )
             } else {
                 // pull down at the top of a page to reload it
                 val loading = (tab?.progress?.intValue ?: 100) < 100
@@ -318,11 +322,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                     val canBack = if (home) tab?.url?.value?.isNotBlank() == true else true
                     BarButton(enabled = canBack, onClick = {
                         val t = c.current ?: return@BarButton
-                        when {
-                            t.home.value -> c.leaveHome(t)
-                            t.webView.canGoBack() -> t.webView.goBack()
-                            else -> c.goHome()
-                        }
+                        if (t.home.value) c.leaveHome(t) else c.back(t)
                     }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع", Modifier.size(22.dp)) }
 
                     AddressField(c, tab, Modifier.weight(1f).padding(horizontal = 4.dp)) { focus.clearFocus() }
