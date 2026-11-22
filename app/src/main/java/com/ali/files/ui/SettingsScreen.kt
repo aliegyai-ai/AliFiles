@@ -126,6 +126,20 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
                 Text(label)
             }
         }
+        Text("بحث التصفح الخفي", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        listOf("ddg" to "DuckDuckGo (مش بيتتبعك)", "brave" to "Brave Search", "same" to "زي البحث العادي").forEach { (key, label) ->
+            Row(Modifier.fillMaxWidth().clickable { AppSettings.setPrivateSearch(key) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = AppSettings.privateSearch.value == key, onClick = { AppSettings.setPrivateSearch(key) })
+                Text(label)
+            }
+        }
+        Text("امسح التصفح الخفي لوحده", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        listOf(-1 to "لأ، أنا بمسحه بإيدي", 0 to "أول ما أخرج من التطبيق", 5 to "بعد 5 دقايق برّه التطبيق", 30 to "بعد نص ساعة برّه التطبيق").forEach { (key, label) ->
+            Row(Modifier.fillMaxWidth().clickable { AppSettings.setPrivateAutoWipe(key) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = AppSettings.privateAutoWipe.value == key, onClick = { AppSettings.setPrivateAutoWipe(key) })
+                Text(label)
+            }
+        }
         ListItem(
             headlineContent = { Text("امسح بيانات التصفح", color = MaterialTheme.colorScheme.error) },
             supportingContent = { Text("السجل، الكوكيز، الكاش، وتسجيلات الدخول") },

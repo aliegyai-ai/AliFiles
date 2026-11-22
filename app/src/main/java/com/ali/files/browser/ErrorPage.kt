@@ -10,7 +10,8 @@ object ErrorPage {
         WebViewClient.ERROR_FAILED_SSL_HANDSHAKE, WebViewClient.ERROR_PROXY_AUTHENTICATION, WebViewClient.ERROR_BAD_URL,
     )
 
-    fun html(code: Int, url: String): String {
+    /** [insecure]: the original http address, when a private tab upgraded it to https and that failed */
+    fun html(code: Int, url: String, insecure: String? = null): String {
         val (icon, title, text) = when (code) {
             WebViewClient.ERROR_HOST_LOOKUP -> Triple("📡", "مفيش نت أو الموقع مش موجود", "اتأكد إن الواي فاي أو البيانات شغّالة، وإن العنوان مكتوب صح.")
             WebViewClient.ERROR_TIMEOUT -> Triple("⏳", "الموقع اتأخر في الرد", "النت ممكن يكون ضعيف، أو الموقع عليه ضغط. جرّب تاني.")
@@ -18,6 +19,9 @@ object ErrorPage {
             WebViewClient.ERROR_FAILED_SSL_HANDSHAKE -> Triple("🔒", "مشكلة في أمان الاتصال", "الموقع مش قادر يعمل اتصال آمن. ممكن تكون ساعة الموبايل غلط.")
             else -> Triple("⚠️", "الصفحة مفتحتش", "حصلت مشكلة وانا بفتح الصفحة.")
         }
+        val extra = if (insecure == null) "" else
+            "<p style='margin-top:22px;font-size:13px'>الموقع ده ممكن ميدعمش الاتصال المشفّر.</p>" +
+                "<a style='color:#d4a94f;font-size:14px' href='alifiles-insecure:${android.net.Uri.encode(insecure)}'>افتحه من غير تشفير (مش آمن)</a>"
         val safeUrl = url.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;")
         val jsUrl = url.replace("\\", "\\\\").replace("'", "\\'")
         return """<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
@@ -30,6 +34,6 @@ font-family:sans-serif;text-align:center}
 .u{color:#a39a88;font-size:12px;direction:ltr;word-break:break-all;margin:12px 0 24px}
 button{background:#d4a94f;color:#1a1408;border:0;border-radius:14px;padding:13px 30px;font-size:16px;font-weight:bold}
 </style></head><body><div class="box"><div class="i">$icon</div><h1>$title</h1><p>$text</p>
-<div class="u">$safeUrl</div><button onclick="location.href='$jsUrl'">جرّب تاني</button></div></body></html>"""
+<div class="u">$safeUrl</div><button onclick="location.href='$jsUrl'">جرّب تاني</button>$extra</div></body></html>"""
     }
 }

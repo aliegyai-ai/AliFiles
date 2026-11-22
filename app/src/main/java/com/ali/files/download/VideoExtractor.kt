@@ -54,6 +54,8 @@ data class VideoRequest(
     /** what the page already tells us — shown at once while the qualities load */
     val title: String? = null,
     val thumbnail: String? = null,
+    /** from a private tab → saved in the vault by default */
+    val private: Boolean = false,
 )
 
 /**
@@ -144,6 +146,8 @@ object VideoExtractor {
     /** yt-dlp keeps YouTube's player code and solved challenges here, so the next video is much faster. */
     private fun cacheOptions(req: YoutubeDLRequest) {
         req.addOption("--cache-dir", File(app.cacheDir, "ytdlp-cache").apply { mkdirs() }.absolutePath)
+        // through Tor while it's on
+        com.ali.files.browser.TorManager.ytdlpProxy()?.let { req.addOption("--proxy", it) }
     }
 
     // ------------------------------------------------------------ remembering / reading ahead

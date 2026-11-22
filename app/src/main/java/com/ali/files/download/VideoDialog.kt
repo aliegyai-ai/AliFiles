@@ -88,7 +88,7 @@ fun VideoDialog(
 ) {
     var state by remember(req) { mutableStateOf<Load>(Load.Loading) }
     var choice by remember(req) { mutableStateOf<Int?>(null) } // AUDIO or a height
-    var toVault by remember(req) { mutableStateOf(AppSettings.saveToVault.value) }
+    var toVault by remember(req) { mutableStateOf(req.private || AppSettings.saveToVault.value) }
 
     LaunchedEffect(req) {
         state = try {

@@ -88,6 +88,10 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     var homeBarrier = -1
     /** a site is loading from the start page — the start page stays until the new page shows (no flash of the old one) */
     val openingFromHome = mutableStateOf(false)
+    /** private tabs: http sites the user chose to open without encryption */
+    val httpAllowed = HashSet<String>()
+    /** https addresses we upgraded from http (so the error page can offer the unencrypted one) */
+    val upgraded = HashMap<String, String>()
     /** find in page: (current match, total) */
     val findResult = mutableStateOf(0 to 0)
 
@@ -139,6 +143,13 @@ class BrowserController(private val activity: Activity) {
         runCatching { androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE) }.getOrDefault(false)
     }
 
+    /** private tabs really have their own cookies on this phone (needs a recent «Android System WebView») */
+    val privateIsolated: Boolean get() = profilesSupported
+    /** ads & trackers blocked in this private session */
+    val privateBlocked = mutableIntStateOf(0)
+    /** when the app was left (for «wipe private tabs after N minutes») */
+    var leftAt = 0L
+
     fun cookieManagerFor(tab: BrowserTab?): CookieManager =
         if (tab?.incognito == true && profilesSupported)
             runCatching { androidx.webkit.ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE).cookieManager }.getOrDefault(CookieManager.getInstance())
@@ -166,6 +177,10 @@ class BrowserController(private val activity: Activity) {
     /** Closes every private tab and wipes everything they left behind (cookies, storage, cache). */
     fun closePrivate() {
         val wasPrivate = privateMode.value
+        val hadAny = tabs.any { it.incognito }
+        TorManager.stop()
+        PrivacyShield.newSession()
+        privateBlocked.intValue = 0
         tabs.filter { it.incognito }.forEach { t ->
             tabs.remove(t)
             (t.frame.parent as? ViewGroup)?.removeView(t.frame)
@@ -179,8 +194,14 @@ class BrowserController(private val activity: Activity) {
         if (wasPrivate) {
             privateMode.value = false
             val t = tabs.firstOrNull { it.id == lastNormalId } ?: tabs.lastOrNull()
-            if (t != null) currentId.longValue = t.id else newTab(HOME)
+            if (t != null) {
+                currentId.longValue = t.id
+                // land on the start page, not on whatever site was open before
+                t.openingFromHome.value = false
+                t.home.value = true
+            } else newTab(HOME)
         }
+        if (hadAny) toast("اتمسح كل حاجة من التصفح الخفي 🔥")
         // the profile can only be deleted once its WebViews are really gone
         main.postDelayed({ wipePrivateProfile() }, 500)
     }
@@ -320,7 +341,7 @@ class BrowserController(private val activity: Activity) {
 
     fun load(input: String) {
         val tab = current ?: newTab(null)
-        val u = toUrl(input)
+        val u = secure(tab, toUrl(input, tab.incognito))
         if (u == HOME) { tab.home.value = true; return }
         tab.pendingUrl = null
         if (tab.home.value) {
@@ -343,14 +364,24 @@ class BrowserController(private val activity: Activity) {
         if (tab.openingFromHome.value) { tab.openingFromHome.value = false; tab.home.value = false }
     }
 
-    fun toUrl(input: String): String {
+    /** Private tabs: http → https (unless the user allowed that site without encryption). */
+    private fun secure(tab: BrowserTab, url: String): String {
+        if (!tab.incognito || !url.startsWith("http://")) return url
+        val host = runCatching { Uri.parse(url).host }.getOrNull() ?: return url
+        if (host in httpAllowed || host == "localhost" || Regex("^\\d+(\\.\\d+){3}$").matches(host)) return url
+        val https = "https://" + url.removePrefix("http://")
+        upgraded[https] = url
+        return https
+    }
+
+    fun toUrl(input: String, private: Boolean = false): String {
         val t = input.trim()
         if (t.isEmpty()) return HOME
         if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(t) || t.startsWith("about:")) return t
         // local devices (router, inverter…) usually speak plain http
         if (Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?(/.*)?$").matches(t) || t.startsWith("localhost")) return "http://$t"
         if (!t.contains(' ') && Regex("^[^\\s]+\\.[a-zA-Z]{2,}(:\\d+)?(/.*)?$").matches(t)) return "https://$t"
-        return AppSettings.searchUrl(t)
+        return AppSettings.searchUrl(t, private)
     }
 
     fun setDesktop(tab: BrowserTab, on: Boolean) {
@@ -478,7 +509,7 @@ class BrowserController(private val activity: Activity) {
             else -> {
                 val name = URLUtil.guessFileName(url, contentDisposition, mime)
                 val ua = tab?.webView?.settings?.userAgentString
-                onDownloadRequest?.invoke(DownloadRequest(url, name, mime, size, headersFor(url, ua, tab?.url?.value)))
+                onDownloadRequest?.invoke(DownloadRequest(url, name, mime, size, headersFor(url, ua, tab?.url?.value), private = tab?.incognito == true))
             }
         }
     }
@@ -495,6 +526,7 @@ class BrowserController(private val activity: Activity) {
         url, headersFor(url, tab.webView.settings.userAgentString, null),
         title = tab.title.value.removeSuffix(" - YouTube").takeIf { it.isNotBlank() && url == tab.url.value },
         thumbnail = com.ali.files.download.VideoExtractor.youtubeId(url)?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
+        private = tab.incognito,
     )
 
     /** On a video page, start reading its qualities after a moment, so the download sheet opens ready. */
@@ -611,6 +643,8 @@ class BrowserController(private val activity: Activity) {
         // ad blocker: hides ad boxes and skips YouTube ads (runs before the page's own scripts)
         wv.addJavascriptInterface(AdFilter.Bridge(), AdFilter.BRIDGE)
         if (docStartScript) {
+            // private tabs: anti-fingerprinting, before any of the site's own code
+            if (tab.incognito) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, PrivacyShield.script(), setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, AdFilter.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
         }
@@ -636,9 +670,22 @@ class BrowserController(private val activity: Activity) {
                     !(tab.pageHost?.let { SiteAllow.isAllowed(it) } ?: false)
                 ) {
                     tab.blocked.intValue++
+                    if (tab.incognito) privateBlocked.intValue++
                     AdStats.add(1)
                     if (tab.fromPopup && !view.canGoBack()) main.post { closeTab(tab.id) }
                     return true
+                }
+                // «open without encryption» on the private error page
+                if (scheme == "alifiles-insecure") {
+                    val target = Uri.decode(u.toString().substringAfter(':'))
+                    runCatching { Uri.parse(target).host }.getOrNull()?.let { httpAllowed.add(it) }
+                    view.loadUrl(target)
+                    return true
+                }
+                // private tabs: http pages open over https
+                if (scheme == "http" && request.isForMainFrame && tab.incognito) {
+                    val s = secure(tab, u.toString())
+                    if (s != u.toString()) { view.loadUrl(s); return true }
                 }
                 if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) return false
                 // intent:, market:, whatsapp:, tel:, mailto: … → hand to the right app
@@ -708,13 +755,20 @@ class BrowserController(private val activity: Activity) {
                 if (!request.isForMainFrame || error.errorCode !in ErrorPage.codes) return
                 val failing = request.url.toString()
                 if (failing.startsWith("data:")) return
-                view.loadDataWithBaseURL(failing, ErrorPage.html(error.errorCode, failing), "text/html", "utf-8", failing)
+                view.loadDataWithBaseURL(failing, ErrorPage.html(error.errorCode, failing, upgraded[failing]), "text/html", "utf-8", failing)
+            }
+
+            override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
+                handler.cancel()
+                val failing = error.url ?: return
+                if (failing != view.url && failing != tab.url.value) return
+                view.loadDataWithBaseURL(failing, ErrorPage.html(android.webkit.WebViewClient.ERROR_FAILED_SSL_HANDSHAKE, failing, upgraded[failing]), "text/html", "utf-8", failing)
             }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url.toString()
                 if (AppSettings.adBlockFast && !request.isForMainFrame && AdFilter.shouldBlock(url, request.url.host, tab.pageHost)) {
-                    main.post { tab.blocked.intValue++ }
+                    main.post { tab.blocked.intValue++; if (tab.incognito) privateBlocked.intValue++ }
                     AdStats.add(1)
                     return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                 }

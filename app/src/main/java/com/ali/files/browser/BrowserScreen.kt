@@ -6,6 +6,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import android.view.ViewGroup
 import android.webkit.URLUtil
 import android.widget.FrameLayout
@@ -183,7 +189,16 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
     }
     // with the fingerprint lock on, leaving the app hides the private space again
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-        if (c.privateMode.value && AppSettings.privateLock.value) c.exitPrivate()
+        val hasPrivate = c.tabs.any { it.incognito }
+        c.leftAt = System.currentTimeMillis()
+        // «wipe as soon as I leave the app»
+        if (hasPrivate && AppSettings.privateAutoWipe.value == 0) c.closePrivate()
+        else if (c.privateMode.value && AppSettings.privateLock.value) c.exitPrivate()
+    }
+    // «wipe after N minutes away»
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+        val m = AppSettings.privateAutoWipe.value
+        if (m > 0 && c.leftAt > 0 && c.tabs.any { it.incognito } && System.currentTimeMillis() - c.leftAt > m * 60_000L) c.closePrivate()
     }
 
     val base = MaterialTheme.colorScheme
@@ -336,6 +351,11 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                                 },
                             )
                         }
+                    }
+
+                    // panic: close every private tab and wipe it all, one tap
+                    if (c.privateMode.value) BarButton(onClick = { c.closePrivate() }) {
+                        Text("🔥", fontSize = 19.sp)
                     }
 
                     BarButton(onClick = { tab?.let { c.captureThumb(it) }; showTabs = true }) {
@@ -632,20 +652,7 @@ private fun StartPage(c: BrowserController, ui: UiState) {
     ) {
         Spacer(Modifier.height(28.dp))
         if (c.privateMode.value) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(gold.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.VisibilityOff, null, tint = gold)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("التصفح الخفي", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text("مفيش سجل ولا كوكيز ولا كاش بيتحفظ", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            TextButton(onClick = { c.closePrivate() }) {
-                Icon(Icons.Filled.DeleteSweep, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("امسح كل حاجة واقفل الخفي")
-            }
+            PrivateDashboard(c)
         } else {
             Text(greeting, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
             Text("هتحمّل إيه النهارده؟", fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -1087,4 +1094,108 @@ private fun LibrarySheet(c: BrowserController, onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+
+/** Start page of the private space: what's protecting you right now. */
+@Composable
+private fun PrivateDashboard(c: BrowserController) {
+    val ctx = LocalContext.current
+    val purple = MaterialTheme.colorScheme.primary
+    val tor = TorManager.state.value
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(purple.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.VisibilityOff, null, tint = purple)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("التصفح الخفي", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(if (tor == TorManager.State.ON) "خفي + Tor" else "مفيش سجل ولا كوكيز بيتحفظ", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+
+    // counter
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("${c.privateBlocked.intValue}", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = purple)
+                Text("إعلان ومتتبّع اتمنعوا في الجلسة دي", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Filled.Shield, null, tint = purple, modifier = Modifier.size(34.dp))
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+
+    // Tor
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = if (tor == TorManager.State.ON) purple.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🧅", fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Tor — إخفاء عنوانك", fontWeight = FontWeight.Bold)
+                    Text(
+                        when (tor) {
+                            TorManager.State.ON -> "شغّال: المواقع وشركة النت مش شايفين انت مين"
+                            TorManager.State.STARTING -> TorManager.message.value
+                            TorManager.State.ERROR -> TorManager.message.value
+                            TorManager.State.OFF -> "المواقع شايفة عنوانك العادي"
+                        },
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (tor == TorManager.State.STARTING) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = purple)
+                else Switch(
+                    checked = tor == TorManager.State.ON,
+                    onCheckedChange = { if (it) TorManager.start(ctx) else TorManager.stop() },
+                    colors = SwitchDefaults.colors(checkedTrackColor = purple),
+                )
+            }
+            if (tor == TorManager.State.ON || tor == TorManager.State.STARTING) {
+                Spacer(Modifier.height(6.dp))
+                Text("وهو شغال، كل التطبيق بيعدّي من خلاله (التبويبات العادية والتحميل كمان) وهيبقى أبطأ شوية. بيقفل لوحده لما تمسح الخفي.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+
+    // what's on
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            PrivLine(c.privateIsolated, if (c.privateIsolated) "كوكيز ومساحة منفصلة تماماً عن العادي" else "الكوكيز مش منفصلة — حدّث «Android System WebView»")
+            PrivLine(true, "منع كوكيز الطرف التالت والمتتبّعين")
+            PrivLine(true, "حماية البصمة (المواقع مش هتعرف موبايلك)")
+            PrivLine(true, "الاتصال المشفّر HTTPS دايماً")
+            PrivLine(true, "بحث خاص: " + when (AppSettings.privateSearch.value) { "brave" -> "Brave Search"; "same" -> "زي العادي"; else -> "DuckDuckGo" })
+            PrivLine(true, "التحميلات بتروح الخزنة")
+            PrivLine(true, "مفيش لقطات شاشة ولا معاينة في التطبيقات الأخيرة")
+            val w = AppSettings.privateAutoWipe.value
+            PrivLine(w >= 0, when { w == 0 -> "بيتمسح أول ما تخرج من التطبيق"; w > 0 -> "بيتمسح لوحده بعد $w دقيقة برّه التطبيق"; else -> "المسح التلقائي مقفول (من الإعدادات)" })
+        }
+    }
+    if (!c.privateIsolated) {
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = {
+            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.webview"))) }
+        }) { Text("حدّث Android System WebView") }
+    }
+    Spacer(Modifier.height(10.dp))
+    Button(
+        onClick = { c.closePrivate() },
+        colors = ButtonDefaults.buttonColors(containerColor = purple),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+    ) { Text("🔥  امسح كل حاجة واقفل الخفي", fontWeight = FontWeight.Bold) }
+}
+
+@Composable
+private fun PrivLine(ok: Boolean, t: String) = Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Icon(if (ok) Icons.Filled.CheckCircle else Icons.Filled.Close, null, Modifier.size(17.dp), tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+    Spacer(Modifier.width(10.dp))
+    Text(t, fontSize = 13.sp)
 }

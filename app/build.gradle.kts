@@ -6,7 +6,7 @@ plugins {
 }
 
 // bump this for a big release; the build number from GitHub is added after it
-val appVersion = "1.8"
+val appVersion = "1.9"
 
 android {
     namespace = "com.ali.files"
@@ -94,6 +94,8 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("info.guardianproject:tor-android:0.4.8.17.2")
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.2")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")

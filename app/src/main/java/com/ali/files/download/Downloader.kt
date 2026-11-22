@@ -65,6 +65,7 @@ object Downloader {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .proxySelector(com.ali.files.browser.TorManager.proxySelector)   // through Tor while it's on
             .build()
     }
 

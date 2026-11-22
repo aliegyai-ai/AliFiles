@@ -54,4 +54,6 @@ data class DownloadRequest(
     val mime: String? = null,
     val size: Long = -1,
     val headers: Map<String, String> = emptyMap(),
+    /** from a private tab → saved in the vault by default */
+    val private: Boolean = false,
 )
