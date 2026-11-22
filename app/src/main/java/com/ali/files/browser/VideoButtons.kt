@@ -21,7 +21,7 @@ object VideoButtons {
     b.setAttribute('aria-label','تحميل الفيديو');
     var s = b.style;
     s.position='fixed'; s.zIndex='2147483647'; s.width='40px'; s.height='40px'; s.borderRadius='20px';
-    s.background='rgba(15,94,87,0.92)'; s.color='#fff'; s.font='bold 22px sans-serif'; s.lineHeight='40px';
+    s.background='rgba(212,169,79,0.95)'; s.color='#1a1408'; s.font='bold 22px sans-serif'; s.lineHeight='40px';
     s.textAlign='center'; s.boxShadow='0 2px 6px rgba(0,0,0,.45)'; s.cursor='pointer'; s.display='none';
     s.userSelect='none'; s.webkitUserSelect='none';
     var fire = function(e){
@@ -47,6 +47,8 @@ object VideoButtons {
     for (var k=btns.length-1;k>=0;k--){
       var e = btns[k];
       if (!e.v.isConnected) { if (e.b.parentNode) e.b.parentNode.removeChild(e.b); btns.splice(k,1); continue; }
+      var on = false; try { on = $BRIDGE.buttons(); } catch(x) {}
+      if (!on) { e.b.style.display='none'; continue; }
       var r = e.v.getBoundingClientRect();
       var vis = r.width >= 120 && r.height >= 70 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
       if (!vis) { e.b.style.display='none'; continue; }
@@ -72,6 +74,10 @@ object VideoButtons {
             val p = page ?: ""
             main.post { onDownload(s, p) }
         }
+
+        /** whether to draw the ⬇ buttons (Settings) */
+        @JavascriptInterface
+        fun buttons(): Boolean = com.ali.files.util.AppSettings.inPageButtonsFast
 
         @JavascriptInterface
         fun playing(src: String?, page: String?) {

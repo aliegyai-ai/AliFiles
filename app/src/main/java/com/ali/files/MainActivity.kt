@@ -36,6 +36,10 @@ class MainActivity : FragmentActivity() {
         browser.onFileChosen(it.resultCode, it.data)
     }
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private var permissionDone: ((Boolean) -> Unit)? = null
+    private val sitePermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        permissionDone?.invoke(r.values.any { it }); permissionDone = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -46,6 +50,7 @@ class MainActivity : FragmentActivity() {
             onVideoRequest = { ui.videoRequest.value = it }
             onLongPress = { ui.longPress.value = it }
             launchFileChooser = { intent -> Vault.allowLeave = true; fileChooser.launch(intent) }
+            requestAndroidPermissions = { perms, done -> Vault.allowLeave = true; permissionDone = done; sitePermissions.launch(perms) }
         }
 
         setContent {

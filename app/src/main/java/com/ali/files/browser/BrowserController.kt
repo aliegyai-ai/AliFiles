@@ -51,6 +51,9 @@ data class DetectedMedia(val url: String, val kind: String)
 
 data class LongPress(val url: String, val isImage: Boolean, val incognito: Boolean, val referer: String?)
 
+/** A site asking for the camera / microphone / location; [answer] gets the user's choice. */
+data class SitePermission(val host: String, val kinds: List<String>, val answer: (Boolean) -> Unit)
+
 class BrowserTab(val id: Long, val incognito: Boolean) {
     lateinit var webView: WebView
     val title = mutableStateOf("")
@@ -75,6 +78,12 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     @Volatile var pageHost: String? = null
     /** opened by the page itself (window.open / target=_blank) — closed if it turns out to be an ad */
     @Volatile var fromPopup = false
+    /** the tab this one was opened from — closing this one goes back there */
+    var openerId: Long = -1
+    /** restored from last time but not loaded yet (loads when you open the tab) */
+    var pendingUrl: String? = null
+    /** find in page: (current match, total) */
+    val findResult = mutableStateOf(0 to 0)
 
     /** how many videos (not images/sounds) the page has — for the badge on the download icon */
     val videoCount: Int get() = media.count { it.kind == "فيديو" || it.kind == "HLS" }
@@ -182,6 +191,11 @@ class BrowserController(private val activity: Activity) {
     var onVideoRequest: ((com.ali.files.download.VideoRequest) -> Unit)? = null
     var onLongPress: ((LongPress) -> Unit)? = null
     var launchFileChooser: ((Intent) -> Unit)? = null
+    /** asks Android for camera / microphone / location permission; the callback gets true if granted */
+    var requestAndroidPermissions: ((Array<String>, (Boolean) -> Unit) -> Unit)? = null
+    /** a site wants the camera / microphone / location — the screen shows a question */
+    val sitePermission = mutableStateOf<SitePermission?>(null)
+    private val allowedSites = HashMap<String, MutableSet<String>>()
     private var fileCallback: ValueCallback<Array<Uri>>? = null
 
     private var fullscreenView: View? = null
@@ -199,6 +213,7 @@ class BrowserController(private val activity: Activity) {
         val urls = runCatching { json.decodeFromString<List<String>>(sessionFile.readText()) }.getOrDefault(emptyList())
         if (urls.isEmpty()) newTab(HOME) else urls.forEach { newTab(it, select = false) }
         if (currentId.longValue < 0) tabs.firstOrNull()?.let { currentId.longValue = it.id }
+        current?.let { ensureLoaded(it) }
     }
 
     // ------------------------------------------------------------ tabs
@@ -213,18 +228,26 @@ class BrowserController(private val activity: Activity) {
             currentId.longValue = tab.id
             privateMode.value = incognito
         }
-        when (url) {
-            null -> {}
-            HOME -> tab.home.value = true
+        when {
+            url == null -> {}
+            url == HOME -> tab.home.value = true
+            // restored tabs in the background wait until you open them (faster start, less data)
+            !select -> { tab.pendingUrl = url; tab.url.value = url; tab.title.value = url.substringAfter("://").substringBefore('/') }
             else -> tab.webView.loadUrl(url)
         }
         return tab
     }
 
+    private fun ensureLoaded(tab: BrowserTab) {
+        val u = tab.pendingUrl ?: return
+        tab.pendingUrl = null
+        tab.webView.loadUrl(u)
+    }
+
     fun select(id: Long) {
         current?.let { captureThumb(it) }
         currentId.longValue = id
-        tabs.firstOrNull { it.id == id }?.let { privateMode.value = it.incognito }
+        tabs.firstOrNull { it.id == id }?.let { privateMode.value = it.incognito; ensureLoaded(it) }
         barsHidden.value = false
     }
 
@@ -242,15 +265,15 @@ class BrowserController(private val activity: Activity) {
     fun captureThumb(tab: BrowserTab) {
         if (tab.home.value) { tab.thumb.value = null; return }
         val v = tab.webView
-        if (v.width <= 0 || v.height <= 0) return
+        if (v.width <= 0 || v.height <= 0 || !v.isAttachedToWindow) return
         runCatching {
-            val scale = 0.35f
-            val bmp = android.graphics.Bitmap.createBitmap((v.width * scale).toInt(), (v.height * scale).toInt(), android.graphics.Bitmap.Config.RGB_565)
-            val canvas = android.graphics.Canvas(bmp)
-            canvas.scale(scale, scale)
-            canvas.translate(-v.scrollX.toFloat(), -v.scrollY.toFloat())
-            v.draw(canvas)
-            tab.thumb.value = bmp
+            // copy what's on screen (the page is drawn by the GPU, so drawing it into a bitmap comes out blank)
+            val loc = IntArray(2).also { v.getLocationInWindow(it) }
+            val rect = android.graphics.Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height)
+            val bmp = android.graphics.Bitmap.createBitmap((v.width * 0.35f).toInt(), (v.height * 0.35f).toInt(), android.graphics.Bitmap.Config.ARGB_8888)
+            android.view.PixelCopy.request(activity.window, rect, bmp, { r ->
+                if (r == android.view.PixelCopy.SUCCESS) tab.thumb.value = bmp
+            }, main)
         }
     }
 
@@ -263,8 +286,10 @@ class BrowserController(private val activity: Activity) {
         tab.webView.destroy()
         val same = tabs.filter { it.incognito == tab.incognito }
         if (currentId.longValue == id) {
+            val opener = same.firstOrNull { it.id == tab.openerId }
             when {
-                same.isNotEmpty() -> currentId.longValue = same.last().id
+                opener != null -> select(opener.id)   // back to the tab the link was opened from
+                same.isNotEmpty() -> select(same.last().id)
                 tab.incognito -> closePrivate() // last private tab closed → wipe and go back to normal tabs
                 else -> newTab(HOME)
             }
@@ -343,12 +368,23 @@ class BrowserController(private val activity: Activity) {
         runCatching { bookmarksFile.writeText(json.encodeToString(bookmarks.toList())) }
     }
 
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    private fun saveHistory() {
+        val snapshot = history.toList()
+        io.execute { runCatching { historyFile.writeText(json.encodeToString(snapshot)) } }
+    }
+
     private fun addHistory(title: String, url: String) {
         if (url.isBlank() || url.startsWith("about:") || url.startsWith("data:")) return
-        if (history.firstOrNull()?.url == url) return
+        val first = history.firstOrNull()
+        if (first?.url == url) {
+            if (title.isNotBlank() && first.title != title) { history[0] = first.copy(title = title); saveHistory() }
+            return
+        }
         history.add(0, HistoryEntry(title.ifBlank { url }, url, System.currentTimeMillis()))
         while (history.size > 500) history.removeAt(history.size - 1)
-        runCatching { historyFile.writeText(json.encodeToString(history.toList())) }
+        saveHistory()
     }
 
     fun clearHistory() {
@@ -385,6 +421,7 @@ class BrowserController(private val activity: Activity) {
         (activity.window.decorView as FrameLayout).removeView(v)
         fullscreenView = null
         fullscreen.value = false
+        activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         WindowInsetsControllerCompat(activity.window, activity.window.decorView).show(WindowInsetsCompat.Type.systemBars())
         fullscreenCallback?.onCustomViewHidden()
         fullscreenCallback = null
@@ -439,7 +476,14 @@ class BrowserController(private val activity: Activity) {
 
     /** A ⬇ button on a video (or the floating one) was tapped. */
     fun downloadVideo(tab: BrowserTab, src: String = tab.lastVideoSrc, page: String = tab.lastVideoPage) {
-        val pageUrl = page.ifBlank { tab.url.value }
+        // on YouTube & co. always the video that's open now (the remembered one can be the previous video)
+        val now = tab.url.value
+        val pageUrl = when {
+            com.ali.files.download.VideoExtractor.isSingleVideoPage(now) -> now
+            com.ali.files.download.VideoExtractor.isSingleVideoPage(page) -> page
+            com.ali.files.download.VideoExtractor.isVideoPage(now) -> { toast("افتح الفيديو نفسه الأول، وبعدين دوس تحميل"); return }
+            else -> page.ifBlank { now }
+        }
         val direct = src.startsWith("http") && !com.ali.files.download.VideoExtractor.isVideoPage(pageUrl) &&
             (MediaSniffer.kind(src) != null || !src.contains("googlevideo"))
         if (direct) requestDownload(src, tab) else requestVideo(tab, pageUrl)
@@ -460,6 +504,41 @@ class BrowserController(private val activity: Activity) {
 
     private fun toast(s: String) = Toast.makeText(activity, s, Toast.LENGTH_LONG).show()
 
+    /** Settings switch «dark websites» — applies to the open tabs at once. */
+    fun applyDarkSites() {
+        if (!androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) return
+        tabs.forEach { t -> runCatching { androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(t.webView.settings, AppSettings.darkSites.value) } }
+    }
+
+    /** Long-press «open in a private tab». */
+    fun openPrivate(url: String) { newTab(url, incognito = true) }
+
+    /** Asks the user (once per site per session) and then Android, before a site gets the camera / mic / location. */
+    private fun askSite(origin: String, kinds: List<String>, tab: BrowserTab, done: (Boolean) -> Unit) {
+        val host = runCatching { Uri.parse(origin).host }.getOrNull() ?: origin
+        val known = allowedSites[host]
+        if (known != null && known.containsAll(kinds)) { androidGrant(kinds, done); return }
+        sitePermission.value = SitePermission(host, kinds) { ok ->
+            sitePermission.value = null
+            if (!ok) { done(false); return@SitePermission }
+            if (!tab.incognito) allowedSites.getOrPut(host) { HashSet() }.addAll(kinds)
+            androidGrant(kinds, done)
+        }
+    }
+
+    private fun androidGrant(kinds: List<String>, done: (Boolean) -> Unit) {
+        val perms = kinds.flatMap {
+            when (it) {
+                "camera" -> listOf(android.Manifest.permission.CAMERA)
+                "mic" -> listOf(android.Manifest.permission.RECORD_AUDIO)
+                else -> listOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+        }.filter { androidx.core.content.ContextCompat.checkSelfPermission(activity, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        if (perms.isEmpty()) { done(true); return }
+        val ask = requestAndroidPermissions ?: run { done(false); return }
+        ask(perms.toTypedArray(), done)
+    }
+
     // ------------------------------------------------------------ WebView setup
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -475,7 +554,7 @@ class BrowserController(private val activity: Activity) {
             displayZoomControls = false
             setSupportMultipleWindows(true)
             javaScriptCanOpenWindowsAutomatically = false
-            mediaPlaybackRequiresUserGesture = true
+            mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             if (tab.incognito) cacheMode = WebSettings.LOAD_NO_CACHE
         }
@@ -487,6 +566,11 @@ class BrowserController(private val activity: Activity) {
             }
         }
         cookieManagerFor(tab).setAcceptThirdPartyCookies(wv, !tab.incognito)
+        // dark websites when the phone is dark (only pages that don't have their own dark look)
+        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
+            runCatching { androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(wv.settings, AppSettings.darkSites.value) }
+        }
+        wv.setFindListener { active, total, _ -> tab.findResult.value = (if (total > 0) active + 1 else 0) to total }
 
         // ⬇ buttons on every video (all frames, injected before the page's own scripts when supported)
         wv.addJavascriptInterface(VideoButtons.Bridge(
@@ -568,9 +652,27 @@ class BrowserController(private val activity: Activity) {
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
-                if (url != null) { tab.url.value = url; schedulePrefetch(tab, url) }
+                if (url != null) {
+                    // sites like YouTube change page without loading a new one: forget the previous video
+                    if (url.substringBefore('#') != tab.url.value.substringBefore('#')) {
+                        tab.media.clear()
+                        tab.playing.value = false
+                        tab.lastVideoSrc = ""
+                        tab.lastVideoPage = ""
+                    }
+                    tab.url.value = url
+                    schedulePrefetch(tab, url)
+                    if (!tab.incognito) addHistory(view.title ?: "", url)
+                }
                 tab.canBack.value = view.canGoBack()
                 tab.canForward.value = view.canGoForward()
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                if (!request.isForMainFrame || error.errorCode !in ErrorPage.codes) return
+                val failing = request.url.toString()
+                if (failing.startsWith("data:")) return
+                view.loadDataWithBaseURL(failing, ErrorPage.html(error.errorCode, failing), "text/html", "utf-8", failing)
             }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
@@ -587,13 +689,39 @@ class BrowserController(private val activity: Activity) {
 
         wv.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { tab.progress.intValue = newProgress }
-            override fun onReceivedTitle(view: WebView, title: String?) { tab.title.value = title ?: "" }
+            override fun onReceivedTitle(view: WebView, title: String?) {
+                tab.title.value = title ?: ""
+                if (!tab.incognito && !title.isNullOrBlank() && history.firstOrNull()?.url == tab.url.value) addHistory(title, tab.url.value)
+            }
+
+            // a site asks for the location (maps, weather…)
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: android.webkit.GeolocationPermissions.Callback) {
+                askSite(origin, listOf("location"), tab) { ok -> callback.invoke(origin, ok, false) }
+            }
+
+            // a site asks for the camera / microphone (calls, voice notes…)
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
+                val wanted = request.resources.mapNotNull {
+                    when (it) {
+                        android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE -> "camera"
+                        android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE -> "mic"
+                        else -> null
+                    }
+                }
+                if (wanted.isEmpty()) { request.deny(); return }
+                askSite(request.origin.toString(), wanted, tab) { ok ->
+                    if (ok) request.grant(request.resources.filter {
+                        it == android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE || it == android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                    }.toTypedArray()) else request.deny()
+                }
+            }
 
             // pop-up blocker: only windows opened by a real tap become new tabs
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 if (!isUserGesture) { tab.blocked.intValue++; AdStats.add(1); return false }
                 val t = newTab(null, tab.incognito)
                 t.fromPopup = true
+                t.openerId = tab.id
                 val transport = resultMsg.obj as WebView.WebViewTransport
                 transport.webView = t.webView
                 resultMsg.sendToTarget()
@@ -612,18 +740,40 @@ class BrowserController(private val activity: Activity) {
                 val btn = android.widget.TextView(activity).apply {
                     text = "\u2B07"
                     textSize = 22f
-                    setTextColor(android.graphics.Color.WHITE)
+                    setTextColor(0xFF1A1408.toInt())
                     gravity = android.view.Gravity.CENTER
                     contentDescription = "تحميل الفيديو"
                     background = android.graphics.drawable.GradientDrawable().apply {
                         shape = android.graphics.drawable.GradientDrawable.OVAL
-                        setColor(0xEB0F5E57.toInt())
+                        setColor(0xF2D4A94F.toInt())
                     }
                     setOnClickListener { downloadVideo(tab) }
                 }
                 frame.addView(btn, FrameLayout.LayoutParams((48 * d).toInt(), (48 * d).toInt(), android.view.Gravity.TOP or android.view.Gravity.END).apply {
                     val m = (20 * d).toInt(); setMargins(m, m, m, m)
                 })
+                // ⟳ turns the picture (sideways by default, like a TV)
+                val rotate = android.widget.TextView(activity).apply {
+                    text = "\u27F3"
+                    textSize = 22f
+                    setTextColor(android.graphics.Color.WHITE)
+                    gravity = android.view.Gravity.CENTER
+                    contentDescription = "لف الشاشة"
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(0x99000000.toInt())
+                    }
+                    setOnClickListener {
+                        activity.requestedOrientation =
+                            if (activity.requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
+                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    }
+                }
+                frame.addView(rotate, FrameLayout.LayoutParams((48 * d).toInt(), (48 * d).toInt(), android.view.Gravity.TOP or android.view.Gravity.START).apply {
+                    val m = (20 * d).toInt(); setMargins(m, m, m, m)
+                })
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 fullscreenView = frame
                 fullscreenCallback = callback
                 fullscreen.value = true

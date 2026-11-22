@@ -6,7 +6,7 @@ plugins {
 }
 
 // bump this for a big release; the build number from GitHub is added after it
-val appVersion = "1.7"
+val appVersion = "1.8"
 
 android {
     namespace = "com.ali.files"
@@ -80,6 +80,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.webkit:webkit:1.12.1")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 
     // built-in music & video player
     val media3 = "1.5.1"

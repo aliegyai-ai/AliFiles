@@ -20,6 +20,11 @@ object AppSettings {
     val floatingDownload = mutableStateOf(false)
     /** ask for the fingerprint before opening the private browser */
     val privateLock = mutableStateOf(false)
+    /** small ⬇ buttons drawn on top of videos inside web pages (off: use the toolbar icon) */
+    val inPageButtons = mutableStateOf(false)
+    @Volatile var inPageButtonsFast = false
+    /** make websites dark when the phone is in dark mode */
+    val darkSites = mutableStateOf(true)
 
     @Volatile var adBlockFast = true
         private set
@@ -35,6 +40,8 @@ object AppSettings {
         biometric.value = sp.getBoolean("biometric", true)
         floatingDownload.value = sp.getBoolean("floatingDownload", false)
         privateLock.value = sp.getBoolean("privateLock", false)
+        inPageButtons.value = sp.getBoolean("inPageButtons", false); inPageButtonsFast = inPageButtons.value
+        darkSites.value = sp.getBoolean("darkSites", true)
     }
 
     fun setThreads(v: Int) { threads.intValue = v; sp.edit().putInt("threads", v).apply() }
@@ -42,6 +49,8 @@ object AppSettings {
     fun setAdBlock(v: Boolean) { adBlock.value = v; adBlockFast = v; sp.edit().putBoolean("adBlock", v).apply() }
     fun setSearchEngine(v: String) { searchEngine.value = v; sp.edit().putString("searchEngine", v).apply() }
     fun setClipboardDetect(v: Boolean) { clipboardDetect.value = v; sp.edit().putBoolean("clipboardDetect", v).apply() }
+    fun setInPageButtons(v: Boolean) { inPageButtons.value = v; inPageButtonsFast = v; sp.edit().putBoolean("inPageButtons", v).apply() }
+    fun setDarkSites(v: Boolean) { darkSites.value = v; sp.edit().putBoolean("darkSites", v).apply() }
     fun setPrivateLock(v: Boolean) { privateLock.value = v; sp.edit().putBoolean("privateLock", v).apply() }
     fun setFloatingDownload(v: Boolean) { floatingDownload.value = v; sp.edit().putBoolean("floatingDownload", v).apply() }
     fun setBiometric(v: Boolean) { biometric.value = v; sp.edit().putBoolean("biometric", v).apply() }
