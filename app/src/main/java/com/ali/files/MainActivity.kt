@@ -53,6 +53,9 @@ class MainActivity : FragmentActivity() {
             requestAndroidPermissions = { perms, done -> Vault.allowLeave = true; permissionDone = done; sitePermissions.launch(perms) }
         }
 
+        // torrents left running continue in the background
+        if (com.ali.files.torrent.TorrentEngine.active) com.ali.files.torrent.TorrentService.ensureRunning(this)
+
         // keep the throw-away caches small
         Thread {
             if (com.ali.files.util.StorageInfo.autoClean(applicationContext)) runOnUiThread { browser.clearWebCache() }
@@ -151,6 +154,12 @@ class MainActivity : FragmentActivity() {
             Intent.ACTION_VIEW -> {
                 val data = intent.dataString ?: return
                 val type = intent.type ?: intent.data?.let { runCatching { contentResolver.getType(it) }.getOrNull() } ?: ""
+                // torrents from other apps
+                if (data.startsWith("magnet:", true)) { com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Magnet(data)); return }
+                if (type == "application/x-bittorrent" || (!data.startsWith("http") && data.substringBefore('?').endsWith(".torrent", true))) {
+                    intent.data?.let { com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Content(it)) }
+                    return
+                }
                 if (!data.startsWith("http") && (type.startsWith("video/") || type.startsWith("audio/"))) {
                     // «Open with حمّل» from another app → play it here
                     val u = intent.data ?: return
@@ -171,6 +180,8 @@ class MainActivity : FragmentActivity() {
                 if (stream != null) {
                     ui.sharedUris.value = listOf(stream)
                     ui.tab.intValue = UiState.TAB_VAULT
+                } else if (text != null && Regex("magnet:\\?\\S+", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+                    com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Magnet(Regex("magnet:\\?\\S+", RegexOption.IGNORE_CASE).find(text)!!.value))
                 } else if (text != null) {
                     val url = findUrl(text) ?: return
                     AppSettings.lastClip = url

@@ -148,6 +148,20 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         )
 
         HorizontalDivider()
+        Section("التورنت")
+        SwitchRow("حمّل على الواي فاي بس", "يوقف التورنت لما تكون على باقة الموبايل", AppSettings.torrentWifiOnly.value) { AppSettings.setTorrentWifiOnly(it) }
+        SwitchRow("شارك بعد ما يخلص", "يرفع لغيرك لحد ما ترفع قد اللي نزّلته أو ساعة — مقفول يعني يوقف على طول ويوفّر النت", AppSettings.torrentSeed.value) {
+            AppSettings.setTorrentSeed(it); com.ali.files.torrent.TorrentEngine.applyLimits()
+        }
+        Text("أقصى سرعة تحميل", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        listOf(0 to "من غير حد", 512 to "512 كيلو/ث", 1024 to "1 ميجا/ث", 3072 to "3 ميجا/ث").forEach { (key, label) ->
+            Row(Modifier.fillMaxWidth().clickable { AppSettings.setTorrentLimitKb(key); com.ali.files.torrent.TorrentEngine.applyLimits() }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = AppSettings.torrentLimitKb.value == key, onClick = { AppSettings.setTorrentLimitKb(key); com.ali.files.torrent.TorrentEngine.applyLimits() })
+                Text(label)
+            }
+        }
+
+        HorizontalDivider()
         Section("مساحة التطبيق")
         StorageSection(browser)
 

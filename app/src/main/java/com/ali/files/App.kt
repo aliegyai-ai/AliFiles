@@ -27,6 +27,7 @@ class App : Application() {
         com.ali.files.browser.SiteAllow.init(this)
         com.ali.files.browser.AdStats.init(this)
         com.ali.files.browser.AdFilter.init(this)
+        com.ali.files.torrent.TorrentEngine.init(this)
     }
 }
 

@@ -115,7 +115,7 @@ fun LibFile.toTrack(): Track = Track(
 /** The «المكتبة» tab: the library (what you downloaded) + the downloads list. */
 @Composable
 fun LibraryTab(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Unit) {
-    var page by remember { mutableIntStateOf(0) }
+    var page by LibraryTabState.page
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = page, containerColor = MaterialTheme.colorScheme.surface) {
             Tab(selected = page == 0, onClick = { page = 0 }, text = { Text("المكتبة", fontWeight = FontWeight.Bold) })
@@ -488,3 +488,7 @@ private fun NameDialog(title: String, initial: String, onDone: (String?) -> Unit
         dismissButton = { TextButton(onClick = { onDone(null) }) { Text("إلغاء") } },
     )
 }
+
+
+/** which page of the «المكتبة» tab is open (0 library, 1 downloads) — kept outside so other screens can switch it */
+object LibraryTabState { val page = androidx.compose.runtime.mutableIntStateOf(0) }
