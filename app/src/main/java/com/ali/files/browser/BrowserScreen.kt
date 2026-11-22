@@ -223,8 +223,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
         when {
             findOpen -> { findOpen = false; t?.webView?.clearMatches() }
             t == null -> {}
-            !t.home.value && t.webView.canGoBack() -> t.webView.goBack()
-            !t.home.value -> c.goHome()
+            !t.home.value -> c.back(t)
             else -> {
                 val now = System.currentTimeMillis()
                 if (now - lastBackOnHome < 2000) (ctx as? android.app.Activity)?.moveTaskToBack(true)
@@ -249,30 +248,23 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (home) {
                 StartPage(c, ui)
+                // a site is opening from here: show its progress until it appears
+                if (tab?.openingFromHome?.value == true) LinearProgressIndicator(
+                    progress = { (tab.progress.intValue / 100f).coerceAtLeast(0.05f) },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp),
+                )
             } else {
-                // pull down at the top of a page to reload it
-                val loading = (tab?.progress?.intValue ?: 100) < 100
-                val gold = MaterialTheme.colorScheme.primary.toArgb()
-                val ring = MaterialTheme.colorScheme.surfaceContainerHigh.toArgb()
+                // each tab's page sits in its own pull-to-refresh frame
                 AndroidView(
-                    factory = { context ->
-                        androidx.swiperefreshlayout.widget.SwipeRefreshLayout(context).apply {
-                            setColorSchemeColors(gold)
-                            setProgressBackgroundColorSchemeColor(ring)
-                            setOnRefreshListener { c.current?.webView?.reload() ?: run { isRefreshing = false } }
-                            // only when the page itself is at the very top
-                            setOnChildScrollUpCallback { _, _ -> (c.current?.webView?.scrollY ?: 0) > 0 }
-                        }
-                    },
+                    factory = { context -> FrameLayout(context) },
                     modifier = Modifier.fillMaxSize(),
                     update = { container ->
-                        val wv = tab?.webView
-                        if (wv != null && (container.childCount != 1 || container.getChildAt(0) !== wv)) {
+                        val f = tab?.frame
+                        if (f != null && (container.childCount != 1 || container.getChildAt(0) !== f)) {
                             container.removeAllViews()
-                            (wv.parent as? ViewGroup)?.removeView(wv)
-                            container.addView(wv, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                            (f.parent as? ViewGroup)?.removeView(f)
+                            container.addView(f, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                         }
-                        if (!loading && container.isRefreshing) container.isRefreshing = false
                     },
                 )
                 // optional floating download button (off by default — the toolbar icon does the same job)
@@ -318,11 +310,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                     val canBack = if (home) tab?.url?.value?.isNotBlank() == true else true
                     BarButton(enabled = canBack, onClick = {
                         val t = c.current ?: return@BarButton
-                        when {
-                            t.home.value -> c.leaveHome(t)
-                            t.webView.canGoBack() -> t.webView.goBack()
-                            else -> c.goHome()
-                        }
+                        if (t.home.value) c.leaveHome(t) else c.back(t)
                     }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع", Modifier.size(22.dp)) }
 
                     AddressField(c, tab, Modifier.weight(1f).padding(horizontal = 4.dp)) { focus.clearFocus() }
