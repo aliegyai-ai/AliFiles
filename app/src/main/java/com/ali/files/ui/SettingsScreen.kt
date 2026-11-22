@@ -112,6 +112,8 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         HorizontalDivider()
         Section("المتصفح")
         SwitchRow("مانع الإعلانات والنوافذ المنبثقة", "بيقفل شبكات الإعلانات والتتبع", AppSettings.adBlock.value) { AppSettings.setAdBlock(it) }
+        SwitchRow("وضع ليلي للمواقع", "يخلي المواقع داكنة لما الموبايل يكون على الوضع الداكن", AppSettings.darkSites.value) { AppSettings.setDarkSites(it); browser.applyDarkSites() }
+        SwitchRow("أزرار ⬇ جوه الصفحات", "زرار تحميل صغير فوق كل فيديو جوه الصفحة", AppSettings.inPageButtons.value) { AppSettings.setInPageButtons(it) }
         SwitchRow("زرار التحميل العايم فوق الصفحة", "مقفول: استخدم أيقونة التحميل في الشريط اللي تحت", AppSettings.floatingDownload.value) { AppSettings.setFloatingDownload(it) }
         if (biometricAvailable(ctx)) {
             SwitchRow("قفل التصفح الخفي بالبصمة", "يطلب البصمة كل ما تفتح التصفح الخفي", AppSettings.privateLock.value) { AppSettings.setPrivateLock(it) }

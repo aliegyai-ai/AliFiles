@@ -119,6 +119,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -249,16 +250,29 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
             if (home) {
                 StartPage(c, ui)
             } else {
+                // pull down at the top of a page to reload it
+                val loading = (tab?.progress?.intValue ?: 100) < 100
+                val gold = MaterialTheme.colorScheme.primary.toArgb()
+                val ring = MaterialTheme.colorScheme.surfaceContainerHigh.toArgb()
                 AndroidView(
-                    factory = { context -> FrameLayout(context) },
+                    factory = { context ->
+                        androidx.swiperefreshlayout.widget.SwipeRefreshLayout(context).apply {
+                            setColorSchemeColors(gold)
+                            setProgressBackgroundColorSchemeColor(ring)
+                            setOnRefreshListener { c.current?.webView?.reload() ?: run { isRefreshing = false } }
+                            // only when the page itself is at the very top
+                            setOnChildScrollUpCallback { _, _ -> (c.current?.webView?.scrollY ?: 0) > 0 }
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
                     update = { container ->
                         val wv = tab?.webView
                         if (wv != null && (container.childCount != 1 || container.getChildAt(0) !== wv)) {
                             container.removeAllViews()
                             (wv.parent as? ViewGroup)?.removeView(wv)
-                            container.addView(wv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                            container.addView(wv, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                         }
+                        if (!loading && container.isRefreshing) container.isRefreshing = false
                     },
                 )
                 // optional floating download button (off by default — the toolbar icon does the same job)
@@ -285,6 +299,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
         }
 
         if (findOpen) FindBar(
+            result = tab?.findResult?.value ?: (0 to 0),
             query = findQuery,
             onQuery = { findQuery = it; tab?.webView?.findAllAsync(it) },
             onNext = { tab?.webView?.findNext(true) },
@@ -315,7 +330,9 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                     // download: grey when nothing to download, gold when the page has a video
                     val videoSite = !home && tab?.url?.value?.let { VideoExtractor.isVideoPage(it) } == true
                     val found = if (home) 0 else tab?.videoCount ?: 0
-                    val hasVideo = videoSite || found > 0 || (!home && tab?.playing?.value == true)
+                    // gold only when there's really a video to take: an open video page (not a feed with previews)
+                    val singleVideo = !home && tab?.url?.value?.let { VideoExtractor.isSingleVideoPage(it) } == true
+                    val hasVideo = singleVideo || found > 0 || (!home && !videoSite && tab?.playing?.value == true)
                     BarButton(enabled = !home && tab != null, onClick = { tab?.let { t -> downloadAction(c, t) { showMedia = true } } }) {
                         BadgedBox(badge = {
                             if (found > 1) Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
@@ -364,6 +381,17 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
     if (showMedia && tab != null) MediaSheet(c, tab) { showMedia = false }
     if (showLibrary) LibrarySheet(c) { showLibrary = false }
 
+    c.sitePermission.value?.let { sp ->
+        val what = sp.kinds.joinToString(" و") { when (it) { "camera" -> "الكاميرا"; "mic" -> "المايك"; else -> "مكانك" } }
+        AlertDialog(
+            onDismissRequest = { sp.answer(false) },
+            title = { Text("$what؟") },
+            text = { Text("موقع ${sp.host} عايز يستخدم $what.") },
+            confirmButton = { TextButton(onClick = { sp.answer(true) }) { Text("اسمح", fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { sp.answer(false) }) { Text("لأ") } },
+        )
+    }
+
     ui.longPress.value?.let { lp ->
         AlertDialog(
             onDismissRequest = { ui.longPress.value = null },
@@ -377,6 +405,14 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                 Column(horizontalAlignment = Alignment.End) {
                     TextButton(onClick = { ui.longPress.value = null; c.newTab(lp.url, lp.incognito) }) { Text("افتح في تبويب جديد") }
                     TextButton(onClick = { ui.longPress.value = null; c.requestDownload(lp.url, c.current) }) { Text(if (lp.isImage) "حمّل الصورة" else "حمّل الرابط") }
+                    if (!lp.isImage && VideoExtractor.isSingleVideoPage(lp.url)) {
+                        TextButton(onClick = { ui.longPress.value = null; ui.videoRequest.value = VideoRequest(lp.url) }) { Text("حمّل الفيديو اللي في اللينك ده") }
+                    }
+                    if (!lp.incognito) TextButton(onClick = { ui.longPress.value = null; c.openPrivate(lp.url) }) { Text("افتح في تبويب خفي") }
+                    TextButton(onClick = {
+                        ui.longPress.value = null
+                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, lp.url), "مشاركة"))
+                    }) { Text("شارك الرابط") }
                     TextButton(onClick = { ui.longPress.value = null; copy(ctx, lp.url) }) { Text("انسخ الرابط") }
                 }
             },
@@ -559,9 +595,11 @@ private fun MenuTile(m: MenuItem) {
  * caught media files opens the list to pick from; anything else scans the page and opens the list.
  */
 private fun downloadAction(c: BrowserController, tab: BrowserTab, openMedia: () -> Unit) {
-    val videoSite = VideoExtractor.isVideoPage(tab.url.value)
+    val url = tab.url.value
     when {
-        videoSite || tab.playing.value -> c.downloadVideo(tab)
+        // YouTube / Facebook / TikTok…: the video open now (downloadVideo checks it's a real video page)
+        VideoExtractor.isVideoPage(url) -> c.downloadVideo(tab)
+        tab.playing.value -> c.downloadVideo(tab)
         tab.videoCount == 1 -> c.requestDownload(tab.media.first { it.kind == "فيديو" || it.kind == "HLS" }.url, tab)
         else -> { c.sniffDom(tab); openMedia() }
     }
@@ -868,7 +906,7 @@ private fun AddressField(c: BrowserController, tab: BrowserTab?, modifier: Modif
 }
 
 @Composable
-private fun FindBar(query: String, onQuery: (String) -> Unit, onNext: () -> Unit, onPrev: () -> Unit, onClose: () -> Unit) {
+private fun FindBar(result: Pair<Int, Int>, query: String, onQuery: (String) -> Unit, onNext: () -> Unit, onPrev: () -> Unit, onClose: () -> Unit) {
     Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicTextField(
             value = query, onValueChange = onQuery, singleLine = true,
@@ -876,6 +914,10 @@ private fun FindBar(query: String, onQuery: (String) -> Unit, onNext: () -> Unit
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             modifier = Modifier.weight(1f).padding(vertical = 12.dp),
             decorationBox = { inner -> Box { if (query.isEmpty()) Text("دور في الصفحة…", color = MaterialTheme.colorScheme.onSurfaceVariant); inner() } },
+        )
+        if (query.isNotEmpty()) Text(
+            if (result.second == 0) "مفيش" else "${result.first} من ${result.second}",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 6.dp),
         )
         IconButton(onClick = onPrev) { Icon(Icons.Filled.KeyboardArrowUp, "السابق") }
         IconButton(onClick = onNext) { Icon(Icons.Filled.KeyboardArrowDown, "التالي") }
