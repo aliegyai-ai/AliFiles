@@ -56,6 +56,8 @@ data class SitePermission(val host: String, val kinds: List<String>, val answer:
 
 class BrowserTab(val id: Long, val incognito: Boolean) {
     lateinit var webView: WebView
+    /** the WebView wrapped in its own pull-to-refresh frame (one per tab, so switching tabs never breaks it) */
+    lateinit var frame: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     val title = mutableStateOf("")
     val url = mutableStateOf("")
     val progress = mutableIntStateOf(100)
@@ -166,7 +168,7 @@ class BrowserController(private val activity: Activity) {
         val wasPrivate = privateMode.value
         tabs.filter { it.incognito }.forEach { t ->
             tabs.remove(t)
-            (t.webView.parent as? ViewGroup)?.removeView(t.webView)
+            (t.frame.parent as? ViewGroup)?.removeView(t.frame)
             t.webView.stopLoading()
             t.webView.clearCache(true)
             t.webView.clearFormData()
@@ -225,6 +227,14 @@ class BrowserController(private val activity: Activity) {
     fun newTab(url: String? = HOME, incognito: Boolean = false, select: Boolean = true): BrowserTab {
         val tab = BrowserTab(nextId++, incognito)
         tab.webView = createWebView(tab)
+        tab.frame = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(activity).apply {
+            addView(tab.webView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            setColorSchemeColors(0xFFD4A94F.toInt())
+            setProgressBackgroundColorSchemeColor(0xFF221F19.toInt())
+            setOnRefreshListener { tab.webView.reload() }
+            // pull only works when the page itself is at the very top
+            setOnChildScrollUpCallback { _, _ -> tab.webView.scrollY > 0 }
+        }
         tabs.add(tab)
         if (select || currentId.longValue < 0) {
             current?.let { captureThumb(it) }
@@ -285,7 +295,7 @@ class BrowserController(private val activity: Activity) {
         val idx = tabs.indexOfFirst { it.id == id }
         if (idx < 0) return
         val tab = tabs.removeAt(idx)
-        (tab.webView.parent as? ViewGroup)?.removeView(tab.webView)
+        (tab.frame.parent as? ViewGroup)?.removeView(tab.frame)
         tab.webView.stopLoading()
         tab.webView.destroy()
         val same = tabs.filter { it.incognito == tab.incognito }
@@ -664,6 +674,7 @@ class BrowserController(private val activity: Activity) {
 
             override fun onPageFinished(view: WebView, url: String?) {
                 showOpenedPage(tab)
+                if (tab.frame.isRefreshing) tab.frame.isRefreshing = false
                 tab.url.value = url ?: tab.url.value
                 tab.title.value = view.title ?: tab.url.value
                 tab.canBack.value = view.canGoBack()
