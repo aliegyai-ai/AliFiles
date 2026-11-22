@@ -295,7 +295,7 @@ private fun AddLinkDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
 fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: (toVault: Boolean) -> Unit) {
     var name by remember(req) { mutableStateOf(req.fileName) }
     var threads by remember(req) { mutableFloatStateOf(AppSettings.threads.intValue.toFloat()) }
-    var toVault by remember(req) { mutableStateOf(AppSettings.saveToVault.value) }
+    var toVault by remember(req) { mutableStateOf(req.private || AppSettings.saveToVault.value) }
     val hls = Downloader.isHlsUrl(req.url, req.mime)
     AlertDialog(
         onDismissRequest = onDismiss,

@@ -25,6 +25,10 @@ object AppSettings {
     @Volatile var inPageButtonsFast = false
     /** make websites dark when the phone is in dark mode */
     val darkSites = mutableStateOf(true)
+    /** private tabs: search engine ("ddg", "brave", "same" = like normal tabs) */
+    val privateSearch = mutableStateOf("ddg")
+    /** private tabs wipe themselves: -1 never, 0 as soon as you leave the app, else minutes after leaving */
+    val privateAutoWipe = mutableStateOf(-1)
 
     @Volatile var adBlockFast = true
         private set
@@ -42,6 +46,8 @@ object AppSettings {
         privateLock.value = sp.getBoolean("privateLock", false)
         inPageButtons.value = sp.getBoolean("inPageButtons", false); inPageButtonsFast = inPageButtons.value
         darkSites.value = sp.getBoolean("darkSites", true)
+        privateSearch.value = sp.getString("privateSearch", "ddg") ?: "ddg"
+        privateAutoWipe.value = sp.getInt("privateAutoWipe", -1)
     }
 
     fun setThreads(v: Int) { threads.intValue = v; sp.edit().putInt("threads", v).apply() }
@@ -50,6 +56,8 @@ object AppSettings {
     fun setSearchEngine(v: String) { searchEngine.value = v; sp.edit().putString("searchEngine", v).apply() }
     fun setClipboardDetect(v: Boolean) { clipboardDetect.value = v; sp.edit().putBoolean("clipboardDetect", v).apply() }
     fun setInPageButtons(v: Boolean) { inPageButtons.value = v; inPageButtonsFast = v; sp.edit().putBoolean("inPageButtons", v).apply() }
+    fun setPrivateSearch(v: String) { privateSearch.value = v; sp.edit().putString("privateSearch", v).apply() }
+    fun setPrivateAutoWipe(v: Int) { privateAutoWipe.value = v; sp.edit().putInt("privateAutoWipe", v).apply() }
     fun setDarkSites(v: Boolean) { darkSites.value = v; sp.edit().putBoolean("darkSites", v).apply() }
     fun setPrivateLock(v: Boolean) { privateLock.value = v; sp.edit().putBoolean("privateLock", v).apply() }
     fun setFloatingDownload(v: Boolean) { floatingDownload.value = v; sp.edit().putBoolean("floatingDownload", v).apply() }
@@ -65,8 +73,10 @@ object AppSettings {
         else -> "https://www.google.com/"
     }
 
-    fun searchUrl(q: String): String {
-        val base = when (searchEngine.value) {
+    fun searchUrl(q: String, private: Boolean = false): String {
+        val engine = if (private && privateSearch.value != "same") privateSearch.value else searchEngine.value
+        val base = when (engine) {
+            "brave" -> "https://search.brave.com/search?q="
             "ddg" -> "https://duckduckgo.com/?q="
             "bing" -> "https://www.bing.com/search?q="
             else -> "https://www.google.com/search?q="
