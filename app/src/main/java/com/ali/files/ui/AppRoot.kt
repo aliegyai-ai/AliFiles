@@ -124,6 +124,20 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         }
     }
 
+    // ---------------------------------------------- torrents: pick the files
+    com.ali.files.torrent.TorrentInbox.pending.value?.let { (src, priv) ->
+        com.ali.files.torrent.TorrentAddSheet(
+            source = src, private = priv,
+            onDismiss = { com.ali.files.torrent.TorrentInbox.pending.value = null },
+            onStarted = {
+                com.ali.files.torrent.TorrentInbox.pending.value = null
+                com.ali.files.torrent.TorrentInbox.showTorrents.value = true
+                com.ali.files.library.LibraryTabState.page.intValue = 1
+                ui.tab.intValue = UiState.TAB_DOWNLOADS
+            },
+        )
+    }
+
     // ---------------------------------------------- download confirmation
     ui.pendingDownload.value?.let { req ->
         DownloadDialog(

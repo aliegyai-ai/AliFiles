@@ -94,7 +94,17 @@ fun DownloadsScreen(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Uni
         }
     }
     val totalSpeed = items.filter { it.status == DStatus.RUNNING }.sumOf { it.speed }
+    val torrents = com.ali.files.torrent.TorrentInbox.showTorrents
 
+    Column(Modifier.fillMaxSize()) {
+    Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = !torrents.value, onClick = { torrents.value = false }, label = { Text("روابط وفيديوهات") })
+        val tn = com.ali.files.torrent.TorrentEngine.items.collectAsState().value.count { !it.rec.done }
+        FilterChip(selected = torrents.value, onClick = { torrents.value = true }, label = { Text(if (tn > 0) "🧲 تورنت ($tn)" else "🧲 تورنت") })
+    }
+    if (torrents.value) {
+        com.ali.files.torrent.TorrentList { com.ali.files.torrent.TorrentInbox.open(it) }
+    } else
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -138,10 +148,12 @@ fun DownloadsScreen(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Uni
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
         )
     }
+    }
 
     if (addLink) AddLinkDialog(onDismiss = { addLink = false }) { url ->
         addLink = false
-        onRequest(DownloadRequest(url, URLUtil.guessFileName(url, null, null)))
+        if (com.ali.files.torrent.isTorrentLink(url)) com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Link(url, emptyMap()))
+        else onRequest(DownloadRequest(url, URLUtil.guessFileName(url, null, null)))
     }
 }
 
@@ -284,7 +296,7 @@ private fun AddLinkDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(enabled = url.trim().startsWith("http"), onClick = { onOk(url.trim()) }) { Text("التالي") }
+            TextButton(enabled = url.trim().startsWith("http") || url.trim().startsWith("magnet:", true), onClick = { onOk(url.trim()) }) { Text("التالي") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )

@@ -516,6 +516,10 @@ class BrowserController(private val activity: Activity) {
             else -> {
                 val name = URLUtil.guessFileName(url, contentDisposition, mime)
                 val ua = tab?.webView?.settings?.userAgentString
+                if (com.ali.files.torrent.isTorrentLink(url, mime) || name.endsWith(".torrent", true)) {
+                    com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Link(url, headersFor(url, ua, tab?.url?.value)), tab?.incognito == true)
+                    return
+                }
                 onDownloadRequest?.invoke(DownloadRequest(url, name, mime, size, headersFor(url, ua, tab?.url?.value), private = tab?.incognito == true))
             }
         }
@@ -693,6 +697,10 @@ class BrowserController(private val activity: Activity) {
                 if (scheme == "http" && request.isForMainFrame && tab.incognito) {
                     val s = secure(tab, u.toString())
                     if (s != u.toString()) { view.loadUrl(s); return true }
+                }
+                if (scheme == "magnet") {
+                    com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Magnet(u.toString()), tab.incognito)
+                    return true
                 }
                 if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) return false
                 // intent:, market:, whatsapp:, tel:, mailto: … → hand to the right app

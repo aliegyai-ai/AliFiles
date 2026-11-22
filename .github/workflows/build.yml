@@ -53,6 +53,11 @@ jobs:
           chmod +x gradlew
           set -o pipefail
           ./gradlew assembleRelease -PbuildNumber=$((100 + ${{ github.run_number }})) --stacktrace 2>&1 | tee build.log
+          # every native engine must be inside the APK
+          unzip -l app/build/outputs/apk/release/*.apk | grep "\.so$" | tee -a build.log
+          for lib in libtorrent4j.so libtor.so libonnxruntime.so libqjs.so; do
+            unzip -l app/build/outputs/apk/release/*.apk | grep -q "$lib" || { echo "error: $lib is missing from the APK" | tee -a build.log; exit 1; }
+          done
       - name: Report build errors as a commit comment
         if: failure()
         env:

@@ -17,3 +17,4 @@
 -keep class kotlinx.serialization.** { *; }
 -keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod, SourceFile, LineNumberTable
 -keepclasseswithmembernames class * { native <methods>; }
+-keep class org.libtorrent4j.** { *; }
