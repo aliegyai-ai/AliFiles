@@ -83,7 +83,17 @@ jobs:
             '{versionCode: $code, versionName: $name, notes: $notes}' > version.json
           cat version.json
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest AliFiles.apk version.json --title "ملفات علي $VERSION" --notes "$NOTES" --latest
+          sleep 8   # GitHub needs a moment after deleting the tag, or the new release gets stuck as a draft
+          for i in 1 2 3; do
+            gh release create latest AliFiles.apk version.json --title "ملفات علي $VERSION" --notes "$NOTES" --latest --target "${{ github.sha }}" && break
+            sleep 10
+          done
+          # make sure it's really published (the app's update link depends on it)
+          sleep 5
+          if [ "$(gh release view latest --json isDraft -q .isDraft)" != "false" ]; then
+            gh release edit latest --draft=false --latest
+          fi
+          curl -sfL "https://github.com/${{ github.repository }}/releases/download/latest/version.json"
       - name: Send APK to Telegram
         if: success() && env.TG_TOKEN != ''
         run: |
