@@ -88,10 +88,6 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     var homeBarrier = -1
     /** a site is loading from the start page — the start page stays until the new page shows (no flash of the old one) */
     val openingFromHome = mutableStateOf(false)
-    /** private tabs: http sites the user chose to open without encryption */
-    val httpAllowed = HashSet<String>()
-    /** https addresses we upgraded from http (so the error page can offer the unencrypted one) */
-    val upgraded = HashMap<String, String>()
     /** find in page: (current match, total) */
     val findResult = mutableStateOf(0 to 0)
 
@@ -143,6 +139,10 @@ class BrowserController(private val activity: Activity) {
         runCatching { androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE) }.getOrDefault(false)
     }
 
+    /** private tabs: http sites the user chose to open without encryption */
+    val httpAllowed = HashSet<String>()
+    /** https addresses we upgraded from http (so the error page can offer the unencrypted one) */
+    val upgraded = HashMap<String, String>()
     /** private tabs really have their own cookies on this phone (needs a recent «Android System WebView») */
     val privateIsolated: Boolean get() = profilesSupported
     /** ads & trackers blocked in this private session */
@@ -204,6 +204,13 @@ class BrowserController(private val activity: Activity) {
         if (hadAny) toast("اتمسح كل حاجة من التصفح الخفي 🔥")
         // the profile can only be deleted once its WebViews are really gone
         main.postDelayed({ wipePrivateProfile() }, 500)
+    }
+
+    /** Clears the sites' cached files (images, scripts) for the normal tabs; logins and history stay. */
+    fun clearWebCache() {
+        val wv = tabs.firstOrNull { !it.incognito }?.webView
+        if (wv != null) wv.clearCache(true)
+        else runCatching { WebView(activity).apply { clearCache(true); destroy() } }
     }
 
     private fun wipePrivateProfile() {

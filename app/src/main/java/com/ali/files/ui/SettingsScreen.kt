@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ali.files.BuildConfigInfo
 import com.ali.files.browser.BrowserController
 import com.ali.files.util.AppSettings
@@ -147,6 +148,10 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         )
 
         HorizontalDivider()
+        Section("مساحة التطبيق")
+        StorageSection(browser)
+
+        HorizontalDivider()
         Section("الخزنة")
         if (biometricAvailable(ctx)) {
             SwitchRow("الفتح بالبصمة", null, AppSettings.biometric.value) { AppSettings.setBiometric(it) }
@@ -221,4 +226,57 @@ private fun ChangePinDialog(onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
+}
+
+
+@Composable
+private fun StorageSection(browser: BrowserController) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<com.ali.files.util.StorageInfo.Item>?>(null) }
+    var tick by remember { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(tick) {
+        items = withContext(Dispatchers.IO) { com.ali.files.util.StorageInfo.items(ctx) }
+    }
+    val list = items
+    if (list == null) {
+        Text("بيحسب…", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    val total = list.sumOf { it.bytes }
+    Text("المجموع: ${humanSize(total)}", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+    list.sortedByDescending { it.bytes }.forEach { it ->
+        ListItem(
+            headlineContent = { Text(it.title) },
+            supportingContent = { Text(it.sub) },
+            trailingContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(humanSize(it.bytes), fontWeight = FontWeight.Bold)
+                    if (it.clearable && it.bytes > 0) TextButton(onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                com.ali.files.util.StorageInfo.clear(ctx, it.kind) {}
+                            }
+                            if (it.kind == com.ali.files.util.StorageInfo.Kind.WEB_CACHE) browser.clearWebCache()
+                            Toast.makeText(ctx, "اتمسح ${it.title}", Toast.LENGTH_SHORT).show()
+                            tick++
+                        }
+                    }) { Text("امسح") }
+                }
+            },
+        )
+    }
+    Text(
+        "الكاش بيتمسح لوحده لما يعدّي 200 ميجا.",
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private fun humanSize(b: Long): String = when {
+    b >= 1L shl 30 -> String.format(java.util.Locale.US, "%.1f جيجا", b / (1L shl 30).toDouble())
+    b >= 1L shl 20 -> String.format(java.util.Locale.US, "%.0f ميجا", b / (1L shl 20).toDouble())
+    b >= 1024 -> "${b / 1024} كيلو"
+    b > 0 -> "$b بايت"
+    else -> "فاضي"
 }

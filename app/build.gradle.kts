@@ -36,7 +36,10 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // shrink: drops unused code and icons (the app gets much smaller)
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("ali")
         }
         debug {

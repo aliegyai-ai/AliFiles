@@ -53,6 +53,11 @@ class MainActivity : FragmentActivity() {
             requestAndroidPermissions = { perms, done -> Vault.allowLeave = true; permissionDone = done; sitePermissions.launch(perms) }
         }
 
+        // keep the throw-away caches small
+        Thread {
+            if (com.ali.files.util.StorageInfo.autoClean(applicationContext)) runOnUiThread { browser.clearWebCache() }
+        }.start()
+
         setContent {
             AppTheme {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
