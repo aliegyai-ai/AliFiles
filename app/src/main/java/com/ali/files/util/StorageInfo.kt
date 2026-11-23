@@ -27,8 +27,8 @@ object StorageInfo {
 
     fun items(c: Context): List<Item> {
         val ext = c.getExternalFilesDir(null) ?: c.filesDir
-        val cache = cacheDirs(c).sumOf { size(it) } +
-            (c.cacheDir.listFiles()?.filter { it.isDirectory && it.name !in setOf("WebView", "libthumbs", "ytdlp-cache", "update", "vault_open") }?.sumOf { size(it) } ?: 0)
+        // everything in the cache folder except the browser's and the library's pictures (counted on their own)
+        val cache = c.cacheDir.listFiles()?.filter { it.name !in setOf("WebView", "libthumbs") }?.sumOf { size(it) } ?: 0
         return listOf(
             Item(Kind.LIBRARY, "المكتبة", "الفيديوهات والأغاني اللي حمّلتها — بتتمسح من المكتبة نفسها", size(File(c.filesDir, "library")) + size(File(c.cacheDir, "libthumbs")), false),
             Item(Kind.VAULT, "الخزنة", "ملفاتك المشفّرة — بتتمسح من جوه الخزنة", size(File(c.filesDir, "vault")), false),
@@ -57,7 +57,8 @@ object StorageInfo {
             Kind.WEB_CACHE -> clearWeb()
             Kind.CACHE -> {
                 cacheDirs(c).forEach { it.deleteRecursively() }
-                c.cacheDir.listFiles()?.filter { it.isDirectory && it.name !in setOf("WebView", "libthumbs") }?.forEach { it.deleteRecursively() }
+                // not the browser's/library's pictures, and not a magnet link being read right now
+                c.cacheDir.listFiles()?.filter { it.isDirectory && it.name !in setOf("WebView", "libthumbs", "magnet") }?.forEach { it.deleteRecursively() }
             }
             else -> {}
         }
