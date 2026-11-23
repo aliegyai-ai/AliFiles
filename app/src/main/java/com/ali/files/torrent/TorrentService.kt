@@ -31,6 +31,7 @@ class TorrentService : Service() {
         super.onCreate()
         goForeground(build(TorrentEngine.items.value))
         scope.launch {
+            delay(3000)   // let a just-added torrent reach the list
             TorrentEngine.items.collect { list ->
                 if (list.none { !it.rec.done && !it.rec.paused }) {
                     ServiceCompat.stopForeground(this@TorrentService, ServiceCompat.STOP_FOREGROUND_REMOVE)

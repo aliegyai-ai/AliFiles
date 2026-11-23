@@ -15,6 +15,8 @@ jobs:
       TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -78,9 +80,13 @@ jobs:
           VERSION="$(grep -oP 'val appVersion = "\K[^"]+' app/build.gradle.kts).$CODE"
           cp app/build/outputs/apk/release/*.apk AliFiles.apk
           # version.json is what the app reads to know an update is available
-          NOTES="$(git log -1 --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):' | sed '/^$/d')"
-          jq -n --argjson code "$CODE" --arg name "$VERSION" --arg notes "$NOTES" \
-            '{versionCode: $code, versionName: $name, notes: $notes}' > version.json
+          # notes = every change since the last published version (not just the last commit)
+          PREV="$(curl -sfL "https://github.com/${{ github.repository }}/releases/download/latest/version.json" | jq -r '.sha // empty' || true)"
+          if [ -n "$PREV" ] && git cat-file -e "$PREV" 2>/dev/null; then RANGE="$PREV..HEAD"; else RANGE="-1"; fi
+          NOTES="$(git log $RANGE --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):|^CI|^ci:' | sed '/^$/d' | head -40)"
+          [ -z "$NOTES" ] && NOTES="$(git log -1 --pretty=%s)"
+          jq -n --argjson code "$CODE" --arg name "$VERSION" --arg notes "$NOTES" --arg sha "${{ github.sha }}" \
+            '{versionCode: $code, versionName: $name, notes: $notes, sha: $sha}' > version.json
           cat version.json
           gh release delete latest --yes --cleanup-tag || true
           sleep 8   # GitHub needs a moment after deleting the tag, or the new release gets stuck as a draft

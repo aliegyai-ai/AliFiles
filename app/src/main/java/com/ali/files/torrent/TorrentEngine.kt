@@ -100,6 +100,8 @@ object TorrentEngine {
     fun dataDir(h: String) = File(dir, h)
 
     val active: Boolean get() = recs.value.any { !it.done }
+    /** magnet links being read right now (the engine must stay on for them) */
+    private val fetching = java.util.concurrent.atomic.AtomicInteger(0)
 
     fun init(c: Context) {
         if (::app.isInitialized) return
@@ -154,7 +156,10 @@ object TorrentEngine {
     suspend fun fromMagnet(uri: String): PendingTorrent = withContext(Dispatchers.IO) {
         val s = ensureSession()
         startLoop()
-        val data = s.fetchMagnet(uri, 90, File(app.cacheDir, "magnet").apply { mkdirs() })
+        fetching.incrementAndGet()
+        val data = try {
+            s.fetchMagnet(uri, 90, File(app.cacheDir, "magnet").apply { mkdirs() })
+        } finally { fetching.decrementAndGet() }
             ?: error("مقدرتش أجيب معلومات التورنت — اتأكد من اللينك والنت")
         PendingTorrent(data, TorrentInfo(data))
     }
@@ -169,6 +174,7 @@ object TorrentEngine {
         val rec = TorrentRec(h, p.name, selected.sorted(), sequential, toVault, wanted = wanted)
         recs.value = recs.value.filterNot { it.hash == h } + rec
         save()
+        publish()   // in the list right away (the background service checks the list)
         scope.launch { ensureSession(); add(rec); startLoop() }
         TorrentService.ensureRunning(app)
     }
@@ -239,7 +245,7 @@ object TorrentEngine {
             while (isActive) {
                 runCatching { step(tick++) }
                 delay(1000)
-                if (!active && session != null && tick > 5) {
+                if (!active && fetching.get() == 0 && session != null && tick > 5) {
                     // nothing left: switch the engine off to save battery
                     synchronized(lock) { runCatching { session?.stop() }; session = null }
                     break

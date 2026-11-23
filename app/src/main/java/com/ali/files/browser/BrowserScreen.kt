@@ -191,12 +191,14 @@ fun BrowserScreen(c: BrowserController, ui: UiState) {
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) {
         val hasPrivate = c.tabs.any { it.incognito }
         c.leftAt = System.currentTimeMillis()
+        if (c.awayOnPurpose) { c.leftAt = 0; return@LifecycleEventEffect }
         // «wipe as soon as I leave the app»
         if (hasPrivate && AppSettings.privateAutoWipe.value == 0) c.closePrivate()
         else if (c.privateMode.value && AppSettings.privateLock.value) c.exitPrivate()
     }
     // «wipe after N minutes away»
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+        c.awayOnPurpose = false
         val m = AppSettings.privateAutoWipe.value
         if (m > 0 && c.leftAt > 0 && c.tabs.any { it.incognito } && System.currentTimeMillis() - c.leftAt > m * 60_000L) c.closePrivate()
     }
@@ -419,7 +421,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                     if (!lp.incognito) TextButton(onClick = { ui.longPress.value = null; c.openPrivate(lp.url) }) { Text("افتح في تبويب خفي") }
                     TextButton(onClick = {
                         ui.longPress.value = null
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, lp.url), "مشاركة"))
+                        c.awayOnPurpose = true; ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, lp.url), "مشاركة"))
                     }) { Text("شارك الرابط") }
                     TextButton(onClick = { ui.longPress.value = null; copy(ctx, lp.url) }) { Text("انسخ الرابط") }
                 }
@@ -537,7 +539,7 @@ private fun MenuSheet(
                         Icon(if (marked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, "المفضلة", tint = if (marked) scheme.primary else scheme.onSurfaceVariant)
                     }
                     IconButton(onClick = {
-                        act { ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, page.url.value), "مشاركة")) }
+                        act { c.awayOnPurpose = true; ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, page.url.value), "مشاركة")) }
                     }) { Icon(Icons.Filled.Share, "مشاركة") }
                     IconButton(onClick = { act { copy(ctx, page.url.value) } }) { Icon(Icons.Filled.ContentCopy, "نسخ الرابط") }
                 }

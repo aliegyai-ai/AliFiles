@@ -147,6 +147,8 @@ class BrowserController(private val activity: Activity) {
     val privateIsolated: Boolean get() = profilesSupported
     /** ads & trackers blocked in this private session */
     val privateBlocked = mutableIntStateOf(0)
+    /** we opened another screen on purpose (file picker, share, another app) — not "leaving" for the private-tab lock/wipe */
+    @Volatile var awayOnPurpose = false
     /** when the app was left (for «wipe private tabs after N minutes») */
     var leftAt = 0L
 
@@ -710,6 +712,7 @@ class BrowserController(private val activity: Activity) {
                     intent.component = null
                     intent.selector = null
                     try {
+                        awayOnPurpose = true
                         activity.startActivity(intent)
                     } catch (_: Exception) {
                         intent.getStringExtra("browser_fallback_url")?.let { view.loadUrl(it) }
@@ -898,7 +901,7 @@ class BrowserController(private val activity: Activity) {
                 fileCallback = filePathCallback
                 val launcher = launchFileChooser
                 return if (launcher != null) {
-                    try { launcher(fileChooserParams.createIntent()); true } catch (_: Exception) { fileCallback = null; false }
+                    try { awayOnPurpose = true; launcher(fileChooserParams.createIntent()); true } catch (_: Exception) { fileCallback = null; false }
                 } else false
             }
         }

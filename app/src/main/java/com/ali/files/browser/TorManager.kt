@@ -68,7 +68,12 @@ object TorManager {
         ContextCompat.registerReceiver(app, receiver, IntentFilter(TorService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
         app.bindService(Intent(app, TorService::class.java), conn, Context.BIND_AUTO_CREATE)
         // give up if it doesn't connect in 2 minutes (Tor blocked on this network)
-        main.postDelayed({ if (state.value == State.STARTING) { stop(); state.value = State.ERROR; message.value = "مقدرتش أوصل لـ Tor — ممكن يكون مقفول على الشبكة دي" } }, 120_000)
+        main.removeCallbacks(timeout)
+        main.postDelayed(timeout, 120_000)
+    }
+
+    private val timeout = Runnable {
+        if (state.value == State.STARTING) { stop(); state.value = State.ERROR; message.value = "مقدرتش أوصل لـ Tor — ممكن يكون مقفول على الشبكة دي" }
     }
 
     private fun ready() {
@@ -102,6 +107,7 @@ object TorManager {
     }
 
     private fun off(msg: String) {
+        main.removeCallbacks(timeout)
         socksPort = 0
         state.value = State.OFF
         message.value = msg
