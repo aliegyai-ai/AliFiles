@@ -49,8 +49,8 @@ import kotlinx.coroutines.withContext
 @Composable
 private fun Section(title: String) {
     Text(
-        title, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
+        title, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 6.dp),
     )
 }
 
@@ -71,7 +71,7 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
     var confirmClear by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("الإعدادات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
+        Text("الإعدادات", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 6.dp))
 
         val updScope = rememberCoroutineScope()
         ListItem(

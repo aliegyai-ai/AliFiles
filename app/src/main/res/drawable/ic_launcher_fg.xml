@@ -1,14 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Original mark: a shield with a downward arrow -->
+<!-- Kufic «ع» whose tail is a download arrow (designed on a 200 grid, scaled into the icon's safe zone) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#D4A94F"
-        android:pathData="M54,26 L76,34 L76,52 C76,66 66,77 54,82 C42,77 32,66 32,52 L32,34 Z" />
-    <path
-        android:fillColor="#0E0D0B"
-        android:pathData="M50,40 L58,40 L58,54 L64,54 L54,66 L44,54 L50,54 Z" />
+    <group
+        android:scaleX="0.45"
+        android:scaleY="0.45"
+        android:translateX="7.65"
+        android:translateY="9.45">
+        <path
+            android:pathData="M136,44 H82 Q70,44 70,56 V80 Q70,92 82,92 H100 V152 M74,128 L100,154 L126,128"
+            android:strokeWidth="17"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="#00000000">
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="60"
+                    android:startY="40"
+                    android:endX="140"
+                    android:endY="160">
+                    <item android:offset="0" android:color="#FFF6DFA0" />
+                    <item android:offset="0.5" android:color="#FFD4A94F" />
+                    <item android:offset="1" android:color="#FF9A6E24" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
 </vector>

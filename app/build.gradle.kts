@@ -6,7 +6,7 @@ plugins {
 }
 
 // bump this for a big release; the build number from GitHub is added after it
-val appVersion = "2.1"
+val appVersion = "2.2"
 
 android {
     namespace = "com.ali.files"

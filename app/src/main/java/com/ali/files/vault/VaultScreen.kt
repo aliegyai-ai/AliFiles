@@ -357,7 +357,7 @@ private fun VaultContent() {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selected.isEmpty()) {
                     Column(Modifier.weight(1f)) {
-                        Text("الخزنة", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("الخزنة", style = MaterialTheme.typography.headlineMedium)
                         Text("${entries.size} ملف • ${formatBytes(Vault.totalSize())}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { Icon(Icons.Filled.Search, "بحث") }

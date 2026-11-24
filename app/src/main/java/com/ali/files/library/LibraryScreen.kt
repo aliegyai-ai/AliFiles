@@ -127,9 +127,27 @@ fun LibFile.toTrack(): Track = Track(
 fun LibraryTab(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Unit) {
     var page by LibraryTabState.page
     Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = page, containerColor = MaterialTheme.colorScheme.surface) {
-            Tab(selected = page == 0, onClick = { page = 0 }, text = { Text("المكتبة", fontWeight = FontWeight.Bold) })
-            Tab(selected = page == 1, onClick = { page = 1 }, text = { Text("التحميلات", fontWeight = FontWeight.Bold) })
+        // big Kufic title + a two-way switch (library / downloads)
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.animation.AnimatedContent(page, label = "title", modifier = Modifier.weight(1f)) { p ->
+                Text(if (p == 0) "المكتبة" else "التحميلات", style = MaterialTheme.typography.headlineMedium)
+            }
+            Row(
+                Modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf("ملفاتي", "التحميلات").forEachIndexed { i, label ->
+                    val on = page == i
+                    Box(
+                        Modifier.clip(RoundedCornerShape(12.dp))
+                            .then(if (on) Modifier.background(com.ali.files.ui.GoldBrush) else Modifier)
+                            .clickable { page = i }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                    ) {
+                        Text(label, fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, color = if (on) Color(0xFF14100A) else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
         if (page == 0) LibraryScreen() else DownloadsScreen(onRequest, onOpenVault)
     }
