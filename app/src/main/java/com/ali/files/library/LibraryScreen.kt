@@ -159,7 +159,11 @@ fun LibraryScreen() {
     val files by Library.files.collectAsState()
     val favs by Library.favorites.collectAsState()
     val playlists by Library.playlists.collectAsState()
-    var filter by remember { mutableStateOf(LFilter.ALL) }
+    var filter by remember { mutableStateOf(LFilter.entries.getOrElse(LibraryTabState.filter.intValue) { LFilter.ALL }) }
+    // another screen (the browser's start page) asked for a filter
+    androidx.compose.runtime.LaunchedEffect(LibraryTabState.filterAsk.intValue) {
+        if (LibraryTabState.filterAsk.intValue > 0) filter = LFilter.entries.getOrElse(LibraryTabState.filter.intValue) { LFilter.ALL }
+    }
     var menuFor by remember { mutableStateOf<LibFile?>(null) }
     var openList by remember { mutableStateOf<Playlist?>(null) }
     val folders by Library.folders.collectAsState()
@@ -646,6 +650,10 @@ object LibraryTabState {
     val page = androidx.compose.runtime.mutableIntStateOf(0)
     /** the folder open in the library ("" = top) */
     val folder = mutableStateOf("")
+    /** filter to show: 0 all, 1 video, 2 audio (set by the start page); [filterAsk] changes each time it's asked */
+    val filter = androidx.compose.runtime.mutableIntStateOf(0)
+    val filterAsk = androidx.compose.runtime.mutableIntStateOf(0)
+    fun open(f: Int) { filter.intValue = f; filterAsk.intValue++; page.intValue = 0; folder.value = "" }
     /** locked folders opened since the app was opened */
     val unlocked = HashSet<String>()
 }

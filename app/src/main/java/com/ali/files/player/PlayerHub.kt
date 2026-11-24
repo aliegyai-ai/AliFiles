@@ -105,6 +105,7 @@ object PlayerHub {
             }
             index.intValue = player.currentMediaItemIndex
             restorePosition()
+            rememberPlayed(current)
         }
         override fun onPlayerError(e: PlaybackException) {
             error.value = "مقدرتش أشغّل الملف ده (${e.errorCodeName})"
@@ -183,6 +184,7 @@ object PlayerHub {
         restorePosition()
         player.play()
         val t = tracks[index.intValue]
+        rememberPlayed(t)
         if (t.isVideo) { videoOpen.value = true; musicOpen.value = false } else { videoOpen.value = false; musicOpen.value = true }
     }
 
@@ -261,13 +263,35 @@ object PlayerHub {
 
     private val prefs get() = app.getSharedPreferences("player_pos", Context.MODE_PRIVATE)
 
+    /** what was played lately (library files only, newest first) — for «كمّل من مكان ما وقفت» */
+    val recent = mutableStateOf<List<String>>(emptyList())
+
+    private fun rememberPlayed(t: Track?) {
+        val path = t?.libraryPath ?: return
+        if (recent.value.isEmpty()) recent.value = prefs.getString("recent", "")!!.split('\n').filter { it.isNotBlank() }
+        recent.value = (listOf(path) + recent.value.filter { it != path }).take(12)
+        prefs.edit().putString("recent", recent.value.joinToString("\n")).apply()
+    }
+
+    fun loadRecent() {
+        if (!::app.isInitialized) return
+        recent.value = prefs.getString("recent", "")!!.split('\n').filter { it.isNotBlank() }
+    }
+
+    /** how far into a file (0..1), from the saved position */
+    fun progressOf(id: String): Float {
+        if (!::app.isInitialized) return 0f
+        val p = prefs.getLong(id, 0L); val d = prefs.getLong("d:$id", 0L)
+        return if (p > 0 && d > 0) (p.toFloat() / d).coerceIn(0f, 1f) else 0f
+    }
+
     fun savePosition() {
         val t = current ?: return
         val d = player.duration
         val p = player.currentPosition
         if (d <= 0 || d < 60_000) return  // short clips always start from the beginning
         val e = prefs.edit()
-        if (p > 5_000 && p < d - 15_000) e.putLong(t.id, p) else e.remove(t.id)
+        if (p > 5_000 && p < d - 15_000) e.putLong(t.id, p).putLong("d:${t.id}", d) else e.remove(t.id)
         e.apply()
     }
 
