@@ -195,11 +195,7 @@ fun LibraryScreen() {
     })
     val subFolders = if (filter == LFilter.ALL) Library.sortedFolders(folders.filter { it.parent == current }) else emptyList()
     val selected = files.filter { it.path in selection }
-    fun tap(f: LibFile, list: List<LibFile>) {
-        if (selection.isNotEmpty()) selection = if (f.path in selection) selection - f.path else selection + f.path
-        else open(f, list)
-    }
-    fun press(f: LibFile) { selection = selection + f.path }
+
 
     fun open(f: LibFile, list: List<LibFile>) {
         when (f.kind) {
@@ -210,6 +206,11 @@ fun LibraryScreen() {
             else -> FileStore.open(ctx, Library.uriFor(f.file), f.mime)
         }
     }
+    fun tap(f: LibFile, list: List<LibFile>) {
+        if (selection.isNotEmpty()) selection = if (f.path in selection) selection - f.path else selection + f.path
+        else open(f, list)
+    }
+    fun press(f: LibFile) { selection = selection + f.path }
 
     Column(Modifier.fillMaxSize()) {
         if (selection.isNotEmpty()) SelectionBar(
