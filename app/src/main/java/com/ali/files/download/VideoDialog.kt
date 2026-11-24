@@ -117,15 +117,15 @@ fun VideoDialog(
     val scheme = MaterialTheme.colorScheme
     val ctx = androidx.compose.ui.platform.LocalContext.current
     // a stray tap or swipe doesn't close it — only «✕» / «إلغاء»
-    ModalBottomSheet(
-        onDismissRequest = {}, sheetState = com.ali.files.ui.stickySheetState(),
-    ) {
+    val sheet = com.ali.files.ui.rememberGuardedSheet()
+    val close = { sheet.close(onDismiss) }
+    ModalBottomSheet(onDismissRequest = {}, sheetState = sheet.state) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).navigationBarsPadding().padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                androidx.compose.material3.IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "قفل") }
+                androidx.compose.material3.IconButton(onClick = close) { Icon(Icons.Filled.Close, "قفل") }
             }
             // this video is part of a playlist: offer the whole list
             if (inList != null) androidx.compose.material3.Surface(
@@ -158,9 +158,9 @@ fun VideoDialog(
                     Text(s.message, fontSize = 12.sp, color = scheme.error)
                     Text("لو الفيديو خاص أو محتاج تسجيل دخول، افتحه في متصفح التطبيق وسجّل دخول، وبعدين دوس «حمّل الفيديو».", fontSize = 13.sp, color = scheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("إلغاء") }
+                        OutlinedButton(onClick = close, modifier = Modifier.weight(1f)) { Text("إلغاء") }
                         Button(onClick = {
-                            onFallback(DownloadRequest(req.url, URLUtil.guessFileName(req.url, null, null), headers = req.headers))
+                            sheet.close { onFallback(DownloadRequest(req.url, URLUtil.guessFileName(req.url, null, null), headers = req.headers)) }
                         }, modifier = Modifier.weight(1f)) { Text("حمّله كملف عادي") }
                     }
                 }
@@ -254,7 +254,7 @@ fun VideoDialog(
                             val c = choice ?: return@Button
                             if (c == AUDIO) { AppSettings.setAudioQuality(audioQ.name); AppSettings.setAudioFormat(audioFmt) }
                             Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, toVault, if (c == AUDIO) audioQ else null, audioFmt)
-                            onStarted(toVault)
+                            sheet.close { onStarted(toVault) }
                         },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -280,7 +280,7 @@ fun VideoDialog(
                                 ),
                                 pick,
                             )
-                            onDismiss()
+                            close()
                         },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -289,7 +289,7 @@ fun VideoDialog(
                         Spacer(Modifier.width(8.dp))
                         Text("شغّل من غير تحميل", fontWeight = FontWeight.Bold)
                     }
-                    TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("إلغاء") }
+                    TextButton(onClick = close, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("إلغاء") }
                 }
             }
         }

@@ -143,12 +143,12 @@ fun TorrentAddSheet(source: TorrentSource, private: Boolean, onDismiss: () -> Un
             }
             .onFailure { error = it.message ?: "التورنت ده مش صالح" }
     }
-    ModalBottomSheet(
-        onDismissRequest = {}, sheetState = com.ali.files.ui.stickySheetState(),
-    ) {
+    val sheet = com.ali.files.ui.rememberGuardedSheet()
+    val close = { sheet.close(onDismiss) }
+    ModalBottomSheet(onDismissRequest = {}, sheetState = sheet.state) {
         Column(Modifier.fillMaxWidth().sheetBody().padding(horizontal = 18.dp).padding(bottom = 18.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                IconButton(onClick = onDismiss) { Icon(androidx.compose.material.icons.Icons.Filled.Close, "قفل") }
+                IconButton(onClick = close) { Icon(androidx.compose.material.icons.Icons.Filled.Close, "قفل") }
             }
             val p = pending
             when {
@@ -157,7 +157,7 @@ fun TorrentAddSheet(source: TorrentSource, private: Boolean, onDismiss: () -> Un
                     Spacer(Modifier.height(12.dp))
                     Text(error!!, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("قفل") }
+                    OutlinedButton(onClick = close, modifier = Modifier.fillMaxWidth()) { Text("قفل") }
                 }
                 p == null -> {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 30.dp)) {
@@ -202,7 +202,7 @@ fun TorrentAddSheet(source: TorrentSource, private: Boolean, onDismiss: () -> Un
                     Spacer(Modifier.height(10.dp))
                     Button(
                         enabled = selected.isNotEmpty(),
-                        onClick = { TorrentEngine.start(p, selected, sequential, toVault); onStarted() },
+                        onClick = { TorrentEngine.start(p, selected, sequential, toVault); sheet.close(onStarted) },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                     ) { Text("ابدأ التحميل", fontWeight = FontWeight.Bold) }
