@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
@@ -134,6 +136,26 @@ fun VideoPlayerScreen(onPip: () -> Unit) {
 
     var controls by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
+    var childLock by remember { mutableStateOf(false) }
+    val vctx = androidx.compose.ui.platform.LocalContext.current
+    val pickSub = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) {
+            runCatching { vctx.contentResolver.takePersistableUriPermission(u, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            PlayerHub.addSubtitle(u)
+        }
+    }
+    // child lock: the phone stays on this video (screen pinning) until unlocked with the phone's lock
+    fun startChildLock() {
+        val a = vctx as? android.app.Activity ?: return
+        runCatching { a.startLockTask() }
+        childLock = true; locked = true
+    }
+    fun endChildLock() {
+        com.ali.files.library.unlockWithPhoneLock(vctx, "افتح قفل الأطفال") {
+            runCatching { (vctx as? android.app.Activity)?.stopLockTask() }
+            childLock = false; locked = false
+        }
+    }
     var resize by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -260,7 +282,10 @@ fun VideoPlayerScreen(onPip: () -> Unit) {
 
             if (locked) {
                 AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.CenterStart).safeDrawingPadding().padding(16.dp)) {
-                    RoundButton(Icons.Filled.Lock, "فتح القفل") { locked = false; lastTouch = System.currentTimeMillis() }
+                    RoundButton(Icons.Filled.Lock, if (childLock) "افتح قفل الأطفال" else "فتح القفل") {
+                        if (childLock) endChildLock() else locked = false
+                        lastTouch = System.currentTimeMillis()
+                    }
                 }
             } else AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.38f)).safeDrawingPadding()) {
@@ -274,8 +299,13 @@ fun VideoPlayerScreen(onPip: () -> Unit) {
                         }
                         Box {
                             IconButton(onClick = { subsMenu = true; lastTouch = System.currentTimeMillis() }) { Icon(Icons.Filled.Subtitles, "الترجمة", tint = Color.White) }
-                            SubtitlesMenu(subsMenu) { subsMenu = false }
+                            SubtitlesMenu(subsMenu, onAddFile = { pickSub.launch(arrayOf("*/*")) }) { subsMenu = false }
                         }
+                        IconButton(onClick = {
+                            val t = track ?: return@IconButton
+                            p.pause()
+                            com.ali.files.cast.Cast.castTrack(vctx, t, p.currentPosition)?.let { gestureHint = it }
+                        }) { Icon(Icons.Filled.Cast, "اعرض على التلفزيون", tint = if (com.ali.files.cast.Cast.device.value != null) Gold else Color.White) }
                         IconButton(onClick = { PlayerHub.videoBackground.value = !PlayerHub.videoBackground.value; gestureHint = if (PlayerHub.videoBackground.value) "الصوت هيكمل في الخلفية" else "هيقف لما تخرج" }) {
                             Icon(Icons.Filled.Headphones, "الصوت في الخلفية", tint = if (PlayerHub.videoBackground.value) Gold else Color.White)
                         }
@@ -312,6 +342,9 @@ fun VideoPlayerScreen(onPip: () -> Unit) {
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { locked = true; controls = true; lastTouch = System.currentTimeMillis() }) { Icon(Icons.Filled.LockOpen, "قفل الشاشة", tint = Color.White) }
+                            IconButton(onClick = { startChildLock(); controls = true; gestureHint = "قفل الأطفال: مش هيقدر يخرج من الفيديو"; lastTouch = System.currentTimeMillis() }) {
+                                Icon(Icons.Filled.ChildCare, "قفل الأطفال", tint = Color.White)
+                            }
                             Box {
                                 Row(
                                     Modifier.clip(RoundedCornerShape(50)).clickable { speedMenu = true; lastTouch = System.currentTimeMillis() }.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -366,9 +399,10 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 
 /** Lists the subtitle tracks inside the video (if any) and lets the user pick one or turn them off. */
 @Composable
-private fun SubtitlesMenu(open: Boolean, onDismiss: () -> Unit) {
+private fun SubtitlesMenu(open: Boolean, onAddFile: () -> Unit, onDismiss: () -> Unit) {
     val p = PlayerHub.player
     DropdownMenu(expanded = open, onDismissRequest = onDismiss) {
+        DropdownMenuItem(text = { Text("➕ ضيف ملف ترجمة (srt / vtt / ass)", color = Gold) }, onClick = { onDismiss(); onAddFile() })
         val groups = p.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
         if (groups.isEmpty()) {
             DropdownMenuItem(text = { Text("مفيش ترجمة في الفيديو ده") }, onClick = onDismiss)

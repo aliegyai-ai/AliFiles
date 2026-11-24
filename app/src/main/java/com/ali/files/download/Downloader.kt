@@ -546,10 +546,14 @@ object Downloader {
             Notifications.notifyDone(app, id, "اتحمل في الخزنة 🔒", item.fileName)
         } else {
             // stays inside the app (the library); the user saves it to the phone only if they want
-            val dest = com.ali.files.library.Library.add(part, item.fileName)
+            val dest = com.ali.files.library.Library.add(part, item.fileName, item.headers["Referer"]?.takeIf { it.startsWith("http") } ?: item.url)
             update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, libraryPath = dest.absolutePath, fileName = dest.name, mime = mime) }
             save()
             Notifications.notifyDone(app, id, "اتحمّل في المكتبة", "${dest.name} • ${formatBytes(get(id)?.downloaded ?: 0)}")
+            // «also save to the gallery»
+            if (com.ali.files.util.AppSettings.autoGallery.value) runCatching {
+                com.ali.files.library.Library.files.value.firstOrNull { it.path == dest.absolutePath }?.let { com.ali.files.library.Library.saveToGallery(it) }
+            }
         }
     }
 }

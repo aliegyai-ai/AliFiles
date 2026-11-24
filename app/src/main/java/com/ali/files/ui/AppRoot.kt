@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -82,6 +86,22 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
             // the browser has its own slim toolbar + menu, so the app bar only shows on the other screens
             Column {
             com.ali.files.player.MiniPlayer()
+            com.ali.files.cast.Cast.device.value?.let { tv ->
+                androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)) {
+                    androidx.compose.foundation.layout.Row(
+                        androidx.compose.ui.Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.Cast, null, tint = MaterialTheme.colorScheme.primary)
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(8.dp))
+                        Text("بيتعرض على $tv", modifier = androidx.compose.ui.Modifier.weight(1f), maxLines = 1)
+                        androidx.compose.material3.IconButton(onClick = { com.ali.files.cast.Cast.toggle() }) {
+                            Icon(if (com.ali.files.cast.Cast.playing.value) androidx.compose.material.icons.Icons.Filled.Pause else androidx.compose.material.icons.Icons.Filled.PlayArrow, "تشغيل")
+                        }
+                        androidx.compose.material3.TextButton(onClick = { com.ali.files.cast.Cast.stop() }) { Text("وقّف العرض") }
+                    }
+                }
+            }
             if (!browser.fullscreen.value && tab != UiState.TAB_BROWSER) NavigationBar {
                 NavigationBarItem(
                     selected = tab == UiState.TAB_BROWSER, onClick = { ui.tab.intValue = UiState.TAB_BROWSER },

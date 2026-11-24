@@ -148,6 +148,17 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         )
 
         HorizontalDivider()
+        Section("المكتبة")
+        Text("حط التحميلات الجديدة في مجلدات", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        listOf("none" to "لأ، كله في مكان واحد", "type" to "حسب النوع (فيديوهات، أغاني، صور…)", "source" to "حسب الموقع (YouTube، TikTok…)").forEach { (key, label) ->
+            Row(Modifier.fillMaxWidth().clickable { AppSettings.setAutoFolder(key) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = AppSettings.autoFolder.value == key, onClick = { AppSettings.setAutoFolder(key) })
+                Text(label)
+            }
+        }
+        SwitchRow("احفظ نسخة في الاستديو", "كل فيديو أو صورة أو أغنية تتحمّل تتحفظ كمان في الاستديو/الموسيقى", AppSettings.autoGallery.value) { AppSettings.setAutoGallery(it) }
+
+        HorizontalDivider()
         Section("التورنت")
         SwitchRow("حمّل على الواي فاي بس", "يوقف التورنت لما تكون على باقة الموبايل", AppSettings.torrentWifiOnly.value) { AppSettings.setTorrentWifiOnly(it) }
         SwitchRow("شارك بعد ما يخلص", "يرفع لغيرك لحد ما ترفع قد اللي نزّلته أو ساعة — مقفول يعني يوقف على طول ويوفّر النت", AppSettings.torrentSeed.value) {

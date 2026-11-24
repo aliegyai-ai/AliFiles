@@ -22,12 +22,27 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.IOException
 
-data class LibFile(val file: File, val kind: FileKind, val size: Long, val modified: Long) {
+data class LibFile(val file: File, val kind: FileKind, val size: Long, val modified: Long, val folder: String = "") {
     val name: String get() = file.name
     val title: String get() = file.nameWithoutExtension
     val path: String get() = file.absolutePath
     val mime: String get() = mimeOf(file.name)
 }
+
+/** A folder in the library ([rel] = path inside the library, e.g. "أفلام/أكشن"). */
+data class LibFolder(val rel: String, val count: Int, val size: Long, val modified: Long) {
+    val name: String get() = rel.substringAfterLast('/')
+    val parent: String get() = if ('/' in rel) rel.substringBeforeLast('/') else ""
+}
+
+@Serializable
+data class FolderMeta(val color: Int = 0, val locked: Boolean = false)
+
+/** Something in the trash (kept 30 days). */
+@Serializable
+data class TrashEntry(val id: String, val name: String, val from: String, val deletedAt: Long, val size: Long, val isDir: Boolean = false)
+
+enum class LibSort(val label: String) { DATE("الأحدث"), NAME("الاسم"), SIZE("الحجم"), TYPE("النوع") }
 
 @Serializable
 data class Playlist(val name: String, val paths: List<String> = emptyList())
@@ -55,20 +70,268 @@ object Library {
 
     fun init(c: Context) {
         app = c.applicationContext
+        _meta.value = runCatching { json.decodeFromString<Map<String, FolderMeta>>(metaFile.readText()) }.getOrDefault(emptyMap())
+        _pinned.value = prefs.getStringSet("pinned", emptySet())?.toSet() ?: emptySet()
+        sort.value = runCatching { LibSort.valueOf(prefs.getString("sort", "DATE")!!) }.getOrDefault(LibSort.DATE)
+        // the trash keeps things 30 days
+        val all = runCatching { json.decodeFromString<List<TrashEntry>>(trashIndex.readText()) }.getOrDefault(emptyList())
+        val old = all.filter { System.currentTimeMillis() - it.deletedAt > 30L * 86_400_000 }
+        old.forEach { File(trashDir, it.id).deleteRecursively() }
+        _trash.value = all - old.toSet()
+        if (old.isNotEmpty()) saveTrash(_trash.value)
         _favorites.value = app.getSharedPreferences("library", Context.MODE_PRIVATE).getStringSet("fav", emptySet())?.toSet() ?: emptySet()
         _playlists.value = runCatching { json.decodeFromString<List<Playlist>>(playlistFile.readText()) }.getOrDefault(emptyList())
         refresh()
     }
 
+    private val _folders = MutableStateFlow<List<LibFolder>>(emptyList())
+    val folders: StateFlow<List<LibFolder>> = _folders
+    private val _meta = MutableStateFlow<Map<String, FolderMeta>>(emptyMap())
+    val meta: StateFlow<Map<String, FolderMeta>> = _meta
+    /** pinned files and folders (shown first) */
+    private val _pinned = MutableStateFlow<Set<String>>(emptySet())
+    val pinned: StateFlow<Set<String>> = _pinned
+    private val _trash = MutableStateFlow<List<TrashEntry>>(emptyList())
+    val trash: StateFlow<List<TrashEntry>> = _trash
+    val sort = androidx.compose.runtime.mutableStateOf(LibSort.DATE)
+
+    private val metaFile get() = File(app.filesDir, "folders.json")
+    private val trashDir get() = File(app.filesDir, "trash").apply { mkdirs() }
+    private val trashIndex get() = File(trashDir, "index.json")
+    private val prefs get() = app.getSharedPreferences("library", Context.MODE_PRIVATE)
+
+    fun rel(f: File): String = f.absolutePath.removePrefix(dir.absolutePath).trim('/')
+    fun folderDir(rel: String): File = if (rel.isEmpty()) dir else File(dir, rel)
+
     fun refresh() {
-        _files.value = (dir.listFiles() ?: emptyArray())
-            .filter { it.isFile && !it.name.startsWith(".") }
-            .map { LibFile(it, kindOf(null, it.name), it.length(), it.lastModified()) }
-            .sortedByDescending { it.modified }
+        val root = dir
+        val all = ArrayList<LibFile>()
+        val dirs = ArrayList<LibFolder>()
+        root.walkTopDown().onEnter { !it.name.startsWith(".") || it == root }.forEach { f ->
+            if (f == root || f.name.startsWith(".")) return@forEach
+            if (f.isFile) {
+                val parent = f.parentFile?.let { rel(it) } ?: ""
+                all += LibFile(f, kindOf(null, f.name), f.length(), f.lastModified(), parent)
+            }
+        }
+        root.walkTopDown().onEnter { !it.name.startsWith(".") || it == root }.filter { it.isDirectory && it != root && !it.name.startsWith(".") }.forEach { d ->
+            val inside = d.walkTopDown().filter { it.isFile }.toList()
+            dirs += LibFolder(rel(d), inside.size, inside.sumOf { it.length() }, d.lastModified())
+        }
+        _files.value = all.sortedByDescending { it.modified }
+        _folders.value = dirs
     }
 
-    /** A free name in the library ("song.mp3" → "song (2).mp3" if taken). */
-    fun uniqueFile(name: String): File {
+    fun sorted(l: List<LibFile>): List<LibFile> {
+        val base = when (sort.value) {
+            LibSort.DATE -> l.sortedByDescending { it.modified }
+            LibSort.NAME -> l.sortedBy { it.name.lowercase() }
+            LibSort.SIZE -> l.sortedByDescending { it.size }
+            LibSort.TYPE -> l.sortedWith(compareBy({ it.kind.ordinal }, { it.name.lowercase() }))
+        }
+        val pins = _pinned.value
+        return base.sortedByDescending { it.path in pins }
+    }
+
+    fun sortedFolders(l: List<LibFolder>): List<LibFolder> {
+        val base = when (sort.value) {
+            LibSort.SIZE -> l.sortedByDescending { it.size }
+            LibSort.DATE -> l.sortedByDescending { it.modified }
+            else -> l.sortedBy { it.name.lowercase() }
+        }
+        val pins = _pinned.value
+        return base.sortedByDescending { "dir:" + it.rel in pins }
+    }
+
+    fun setSort(s: LibSort) { sort.value = s; prefs.edit().putString("sort", s.name).apply() }
+
+    // ------------------------------------------------------------ folders
+
+    fun createFolder(parent: String, name: String): Boolean {
+        val clean = sanitizeFileName(name.trim()).ifBlank { return false }
+        val d = File(folderDir(parent), clean)
+        if (d.exists()) return false
+        val ok = d.mkdirs()
+        refresh()
+        return ok
+    }
+
+    fun renameFolder(f: LibFolder, name: String): Boolean {
+        val clean = sanitizeFileName(name.trim()).ifBlank { return false }
+        val src = folderDir(f.rel)
+        val dest = File(src.parentFile, clean)
+        if (dest.exists() || !src.renameTo(dest)) return false
+        val newRel = rel(dest)
+        remapPaths(src.absolutePath, dest.absolutePath)
+        _meta.value[f.rel]?.let { m -> saveMeta(_meta.value - f.rel + (newRel to m)) }
+        if ("dir:" + f.rel in _pinned.value) savePinned(_pinned.value - ("dir:" + f.rel) + ("dir:$newRel"))
+        refresh()
+        return true
+    }
+
+    fun setColor(rel: String, color: Int) = saveMeta(_meta.value + (rel to (_meta.value[rel] ?: FolderMeta()).copy(color = color)))
+    fun setLocked(rel: String, locked: Boolean) = saveMeta(_meta.value + (rel to (_meta.value[rel] ?: FolderMeta()).copy(locked = locked)))
+
+    /** a folder (or one of its parents) is locked */
+    fun isLocked(rel: String): Boolean {
+        var r = rel
+        while (r.isNotEmpty()) {
+            if (_meta.value[r]?.locked == true) return true
+            r = if ('/' in r) r.substringBeforeLast('/') else ""
+        }
+        return false
+    }
+
+    private fun saveMeta(m: Map<String, FolderMeta>) {
+        _meta.value = m
+        runCatching { metaFile.writeText(json.encodeToString(m)) }
+    }
+
+    fun togglePin(key: String) = savePinned(if (key in _pinned.value) _pinned.value - key else _pinned.value + key)
+    private fun savePinned(s: Set<String>) { _pinned.value = s; prefs.edit().putStringSet("pinned", s).apply() }
+
+    /** Moves files into a folder ("" = the library's top). */
+    fun move(files: List<LibFile>, target: String): Int {
+        val to = folderDir(target).apply { mkdirs() }
+        var n = 0
+        files.forEach { f ->
+            if (f.folder == target) return@forEach
+            val dest = uniqueFile(f.name, to)
+            if (f.file.renameTo(dest)) { remapPaths(f.path, dest.absolutePath); n++ }
+        }
+        refresh()
+        return n
+    }
+
+    fun copy(f: LibFile): File {
+        val dest = uniqueFile(f.name, f.file.parentFile ?: dir)
+        f.file.copyTo(dest)
+        refresh()
+        return dest
+    }
+
+    /** Puts files into one .zip next to them. */
+    suspend fun zip(files: List<LibFile>, name: String, folder: String): File = withContext(Dispatchers.IO) {
+        val dest = uniqueFile(if (name.endsWith(".zip")) name else "$name.zip", folderDir(folder))
+        java.util.zip.ZipOutputStream(dest.outputStream().buffered()).use { z ->
+            val used = HashSet<String>()
+            files.forEach { f ->
+                var entry = f.name; var i = 2
+                while (!used.add(entry)) entry = "${f.title} (${i++}).${f.file.extension}"
+                z.putNextEntry(java.util.zip.ZipEntry(entry))
+                f.file.inputStream().use { it.copyTo(z, 256 * 1024) }
+                z.closeEntry()
+            }
+        }
+        refresh()
+        dest
+    }
+
+    /** favorites / playlists / pins follow a file (or everything under a folder) that moved */
+    private fun remapPaths(from: String, to: String) {
+        fun m(p: String) = if (p == from) to else if (p.startsWith("$from/")) to + p.removePrefix(from) else p
+        setFavorites(_favorites.value.map(::m).toSet())
+        savePlaylists(_playlists.value.map { pl -> pl.copy(paths = pl.paths.map(::m)) })
+        savePinned(_pinned.value.map { if (it.startsWith("dir:")) it else m(it) }.toSet())
+    }
+
+    // ------------------------------------------------------------ trash
+
+    private fun saveTrash(l: List<TrashEntry>) {
+        _trash.value = l
+        runCatching { trashIndex.writeText(json.encodeToString(l)) }
+    }
+
+    private fun toTrash(src: File, isDir: Boolean) {
+        val id = System.currentTimeMillis().toString(36) + (0..9999).random()
+        val d = File(trashDir, id).apply { mkdirs() }
+        val dest = File(d, src.name)
+        val size = if (isDir) src.walkTopDown().filter { it.isFile }.sumOf { it.length() } else src.length()
+        if (!src.renameTo(dest)) { src.copyRecursively(dest, true); src.deleteRecursively() }
+        saveTrash(_trash.value + TrashEntry(id, src.name, rel(src.parentFile ?: dir), System.currentTimeMillis(), size, isDir))
+    }
+
+    fun deleteFolder(f: LibFolder) {
+        toTrash(folderDir(f.rel), true)
+        saveMeta(_meta.value.filterKeys { it != f.rel && !it.startsWith(f.rel + "/") })
+        savePinned(_pinned.value - ("dir:" + f.rel))
+        refresh()
+    }
+
+    fun deleteMany(l: List<LibFile>) { l.forEach { toTrash(it.file, false); forget(it.path) }; refresh() }
+
+    fun restore(e: TrashEntry): Boolean {
+        val src = File(File(trashDir, e.id), e.name)
+        val parent = folderDir(e.from).apply { mkdirs() }
+        val dest = if (e.isDir) File(parent, e.name).let { if (it.exists()) File(parent, e.name + " (مسترجع)") else it } else uniqueFile(e.name, parent)
+        val ok = src.renameTo(dest)
+        if (ok) { File(trashDir, e.id).deleteRecursively(); saveTrash(_trash.value - e) }
+        refresh()
+        return ok
+    }
+
+    fun purge(e: TrashEntry) { File(trashDir, e.id).deleteRecursively(); saveTrash(_trash.value - e) }
+    fun emptyTrash() { _trash.value.forEach { File(trashDir, it.id).deleteRecursively() }; saveTrash(emptyList()) }
+
+    // ------------------------------------------------------------ to the phone
+
+    /** Copies into the phone's gallery / music (Movies, Pictures, Music → AliFiles). */
+    suspend fun saveToGallery(f: LibFile): Uri = withContext(Dispatchers.IO) {
+        val r = app.contentResolver
+        val (collection, rel) = when (f.kind) {
+            FileKind.VIDEO -> android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI to android.os.Environment.DIRECTORY_MOVIES
+            FileKind.IMAGE -> android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI to android.os.Environment.DIRECTORY_PICTURES
+            FileKind.AUDIO -> android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI to android.os.Environment.DIRECTORY_MUSIC
+            else -> return@withContext FileStore.saveToDownloads(app, f.file, f.name, f.mime)
+        }
+        val v = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, f.name)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, f.mime)
+            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "$rel/AliFiles")
+            put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = r.insert(collection, v) ?: throw IOException("تعذر الحفظ في الاستديو")
+        try {
+            r.openOutputStream(uri)!!.use { o -> f.file.inputStream().use { it.copyTo(o, 256 * 1024) } }
+            v.clear(); v.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+            r.update(uri, v, null, null)
+        } catch (e: Exception) { r.delete(uri, null, null); throw e }
+        uri
+    }
+
+    enum class ToneType(val label: String, val rm: Int) {
+        CALL("نغمة الاتصال", android.media.RingtoneManager.TYPE_RINGTONE),
+        NOTIFICATION("نغمة الإشعارات", android.media.RingtoneManager.TYPE_NOTIFICATION),
+        ALARM("نغمة المنبه", android.media.RingtoneManager.TYPE_ALARM),
+    }
+
+    /** Needs «تعديل إعدادات النظام» permission (Settings.System.canWrite). */
+    suspend fun setAsTone(f: LibFile, type: ToneType) = withContext(Dispatchers.IO) {
+        val r = app.contentResolver
+        val dirName = when (type) {
+            ToneType.CALL -> android.os.Environment.DIRECTORY_RINGTONES
+            ToneType.NOTIFICATION -> android.os.Environment.DIRECTORY_NOTIFICATIONS
+            ToneType.ALARM -> android.os.Environment.DIRECTORY_ALARMS
+        }
+        val v = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, f.name)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, f.mime)
+            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, dirName)
+            put(android.provider.MediaStore.Audio.Media.IS_RINGTONE, type == ToneType.CALL)
+            put(android.provider.MediaStore.Audio.Media.IS_NOTIFICATION, type == ToneType.NOTIFICATION)
+            put(android.provider.MediaStore.Audio.Media.IS_ALARM, type == ToneType.ALARM)
+            put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = r.insert(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, v) ?: throw IOException("تعذر حفظ النغمة")
+        r.openOutputStream(uri)!!.use { o -> f.file.inputStream().use { it.copyTo(o) } }
+        v.clear(); v.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+        r.update(uri, v, null, null)
+        android.media.RingtoneManager.setActualDefaultRingtoneUri(app, type.rm, uri)
+    }
+
+    /** A free name in [inDir] ("song.mp3" → "song (2).mp3" if taken). */
+    fun uniqueFile(name: String, inDir: File = dir): File {
+        val dir = inDir
         val clean = sanitizeFileName(name).ifBlank { "file" }
         var f = File(dir, clean)
         var i = 2
@@ -78,9 +341,17 @@ object Library {
         return f
     }
 
-    /** Moves a finished download into the library. */
-    fun add(src: File, name: String): File {
-        val dest = uniqueFile(name)
+    /** Moves a finished download into the library ([source] = the site, for «a folder per site»). */
+    fun add(src: File, name: String, source: String? = null): File {
+        val sub = when (com.ali.files.util.AppSettings.autoFolder.value) {
+            "type" -> when (kindOf(null, name)) {
+                FileKind.VIDEO -> "فيديوهات"; FileKind.AUDIO -> "أغاني وصوتيات"; FileKind.IMAGE -> "صور"
+                FileKind.ARCHIVE -> "ملفات مضغوطة"; else -> "مستندات وملفات"
+            }
+            "source" -> source?.let { siteName(it) }
+            else -> null
+        }
+        val dest = uniqueFile(name, if (sub != null) File(dir, sub).apply { mkdirs() } else dir)
         if (!src.renameTo(dest)) {
             src.inputStream().use { i -> dest.outputStream().use { o -> i.copyTo(o, 256 * 1024) } }
             src.delete()
@@ -109,16 +380,30 @@ object Library {
         refresh()
     }
 
+    /** to the trash (can be restored for 30 days) */
     fun delete(f: LibFile) {
-        f.file.delete()
+        toTrash(f.file, false)
         forget(f.path)
         refresh()
+    }
+
+    fun siteName(url: String): String? {
+        val h = runCatching { Uri.parse(url).host }.getOrNull()?.removePrefix("www.")?.removePrefix("m.") ?: return null
+        return when {
+            "youtube" in h || h == "youtu.be" -> "YouTube"
+            "tiktok" in h -> "TikTok"
+            "facebook" in h || h == "fb.watch" -> "Facebook"
+            "instagram" in h -> "Instagram"
+            h == "x.com" || "twitter" in h -> "X"
+            "soundcloud" in h -> "SoundCloud"
+            else -> h.substringBeforeLast('.').substringAfterLast('.').replaceFirstChar { it.uppercase() }.ifBlank { null }
+        }
     }
 
     fun rename(f: LibFile, newName: String): File? {
         val ext = f.file.extension
         val wanted = if (ext.isNotEmpty() && !newName.endsWith(".$ext")) "$newName.$ext" else newName
-        val dest = uniqueFile(wanted)
+        val dest = uniqueFile(wanted, f.file.parentFile ?: dir)
         if (!f.file.renameTo(dest)) return null
         // keep favorites / playlists pointing at the file
         if (f.path in _favorites.value) setFavorites(_favorites.value - f.path + dest.absolutePath)

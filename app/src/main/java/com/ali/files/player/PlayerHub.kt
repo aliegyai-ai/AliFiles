@@ -117,10 +117,50 @@ object PlayerHub {
         controller = MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java))).buildAsync()
     }
 
+    /** subtitle files the user added to a video (by track id) */
+    private val extraSubs = HashMap<String, Uri>()
+
+    private fun subConfig(u: Uri, name: String): MediaItem.SubtitleConfiguration {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        val mime = when (ext) {
+            "vtt" -> androidx.media3.common.MimeTypes.TEXT_VTT
+            "ass", "ssa" -> androidx.media3.common.MimeTypes.TEXT_SSA
+            "ttml", "xml" -> androidx.media3.common.MimeTypes.APPLICATION_TTML
+            else -> androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
+        }
+        return MediaItem.SubtitleConfiguration.Builder(u).setMimeType(mime).setLabel(name.substringBeforeLast('.')).setLanguage("ar")
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
+    }
+
+    /** a video's own subtitle files next to it (movie.mp4 → movie.srt / movie.ar.srt …) + the ones the user added */
+    private fun subsFor(t: Track): List<MediaItem.SubtitleConfiguration> {
+        val l = ArrayList<MediaItem.SubtitleConfiguration>()
+        extraSubs[t.id]?.let { l += subConfig(it, it.lastPathSegment ?: "ترجمة.srt") }
+        if (t.isVideo && t.uri.scheme == "file") runCatching {
+            val f = java.io.File(t.uri.path!!)
+            f.parentFile?.listFiles()?.filter { s ->
+                s.name.startsWith(f.nameWithoutExtension) && s.extension.lowercase() in setOf("srt", "vtt", "ass", "ssa")
+            }?.forEach { s -> l += subConfig(Uri.fromFile(s), s.name) }
+        }
+        return l
+    }
+
+    /** Adds a subtitle file (.srt/.vtt/.ass) to the video that's playing, and keeps playing from the same spot. */
+    fun addSubtitle(u: Uri) {
+        val t = current ?: return
+        extraSubs[t.id] = u
+        val pos = player.currentPosition
+        val i = player.currentMediaItemIndex
+        player.replaceMediaItem(i, mediaItem(t))
+        player.seekTo(i, pos)
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
+    }
+
     private fun mediaItem(t: Track): MediaItem =
         MediaItem.Builder()
             .setMediaId(t.id)
             .setUri(t.uri)
+            .setSubtitleConfigurations(subsFor(t))
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(t.title)
