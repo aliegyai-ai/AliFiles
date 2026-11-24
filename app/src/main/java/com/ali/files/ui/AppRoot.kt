@@ -93,6 +93,8 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     Scaffold(
         modifier = Modifier.appBackground(),
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        // a transparent background has no text color of its own: say it, or text comes out black
+        contentColor = MaterialTheme.colorScheme.onBackground,
         snackbarHost = { SnackbarHost(ui.snackbar) },
         bottomBar = {
             // the browser has its own slim toolbar + menu, so the app bar only shows on the other screens
