@@ -109,6 +109,11 @@
         </receiver>
 
         <service
+            android:name=".browser.BgMediaService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <service
             android:name=".torrent.TorrentService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

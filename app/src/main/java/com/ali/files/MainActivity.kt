@@ -119,11 +119,24 @@ class MainActivity : FragmentActivity() {
         super.onUserLeaveHint()
         // pressing Home during a playing video → it keeps going in a small window
         if (com.ali.files.player.isVideoShowing() && com.ali.files.player.PlayerHub.isPlaying.value && !com.ali.files.player.PlayerHub.videoBackground.value) enterPip()
+        // a video playing in the browser → just the video, in a small window
+        else if (AppSettings.browserPip.value && browserVideoPlaying()) enterBrowserPip()
+    }
+
+    private fun browserVideoPlaying() = ::browser.isInitialized && browser.current?.playing?.value == true && !browser.homeShowing()
+
+    /** The browser's playing video in a small floating window (also from the browser menu). */
+    fun enterBrowserPip() {
+        com.ali.files.browser.BgMedia.pipEnter(browser)
+        runCatching {
+            enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build())
+        }.onFailure { com.ali.files.browser.BgMedia.pipExit(browser) }
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        com.ali.files.player.PlayerHub.inPip.value = isInPictureInPictureMode
+        com.ali.files.player.PlayerHub.inPip.value = isInPictureInPictureMode && !browser.pipMode.value
+        if (!isInPictureInPictureMode) com.ali.files.browser.BgMedia.pipExit(browser)
     }
 
     override fun onDestroy() {

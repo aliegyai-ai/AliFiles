@@ -56,6 +56,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -265,7 +267,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
     val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) { c.imeOpen = imeVisible }
     val typingInPage = imeVisible && !c.addressFocused.value && !findOpen
-    val barsVisible = !typingInPage && (home || !c.barsHidden.value || findOpen)
+    val barsVisible = !c.pipMode.value && !typingInPage && (home || !c.barsHidden.value || findOpen)
 
     Column(Modifier.fillMaxSize()) {
         // ---------------------------------------------------- page (or start page)
@@ -585,6 +587,12 @@ private fun MenuSheet(
                     add(MenuItem("بحث في الصفحة", Icons.Filled.Search) { act(onFind) })
                     add(MenuItem("وسائط الصفحة", Icons.Filled.VideoLibrary) { act(onMedia) })
                     add(MenuItem("وضع الكمبيوتر", Icons.Filled.Computer, selected = page.desktop.value) { act { c.setDesktop(page, !page.desktop.value) } })
+                    if (page.playing.value) {
+                        add(MenuItem("صورة داخل صورة", Icons.Filled.PictureInPictureAlt) { act { (ctx as? com.ali.files.MainActivity)?.enterBrowserPip() } })
+                        add(MenuItem("كمّل في الخلفية", Icons.Filled.Headphones) {
+                            act { (ctx as? android.app.Activity)?.moveTaskToBack(true) }
+                        })
+                    }
                     page.pageHost?.let { host ->
                         if (!page.incognito) add(MenuItem("انسى الموقع ده", Icons.Filled.DeleteSweep) {
                             act { ForgetSites.forget(host); page.webView?.reload(); Toast.makeText(ctx, "${ForgetSites.siteOf(host)} نسي زيارتك", Toast.LENGTH_SHORT).show() }

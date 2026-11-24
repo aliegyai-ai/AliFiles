@@ -25,6 +25,9 @@ object AppSettings {
     @Volatile var inPageButtonsFast = false
     /** make websites dark when the phone is in dark mode */
     val darkSites = mutableStateOf(true)
+    /** browser videos keep playing when you leave the app / shrink to a small window */
+    val bgPlay = mutableStateOf(true)
+    val browserPip = mutableStateOf(true)
     /** what the app calls you ("" = not set yet); [nameAsked] = we already asked once */
     val userName = mutableStateOf("")
     val nameAsked = mutableStateOf(false)
@@ -66,6 +69,8 @@ object AppSettings {
         privateLock.value = sp.getBoolean("privateLock", false)
         inPageButtons.value = sp.getBoolean("inPageButtons", false); inPageButtonsFast = inPageButtons.value
         darkSites.value = sp.getBoolean("darkSites", true)
+        bgPlay.value = sp.getBoolean("bgPlay", true)
+        browserPip.value = sp.getBoolean("browserPip", true)
         userName.value = sp.getString("userName", "") ?: ""
         nameAsked.value = sp.getBoolean("nameAsked", false)
         audioQuality.value = sp.getString("audioQuality", "HIGH") ?: "HIGH"
@@ -106,6 +111,8 @@ object AppSettings {
         userName.value = v.trim(); nameAsked.value = true
         sp.edit().putString("userName", v.trim()).putBoolean("nameAsked", true).apply()
     }
+    fun setBgPlay(v: Boolean) { bgPlay.value = v; sp.edit().putBoolean("bgPlay", v).apply() }
+    fun setBrowserPip(v: Boolean) { browserPip.value = v; sp.edit().putBoolean("browserPip", v).apply() }
     fun setDarkSites(v: Boolean) { darkSites.value = v; sp.edit().putBoolean("darkSites", v).apply() }
     fun setPrivateLock(v: Boolean) { privateLock.value = v; sp.edit().putBoolean("privateLock", v).apply() }
     fun setFloatingDownload(v: Boolean) { floatingDownload.value = v; sp.edit().putBoolean("floatingDownload", v).apply() }
