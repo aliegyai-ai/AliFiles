@@ -33,6 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.ui.draw.alpha
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Mic
@@ -161,10 +164,15 @@ internal fun Breadcrumbs(current: String, onGo: (String) -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun FolderRow(d: LibFolder, meta: FolderMeta, pinned: Boolean, locked: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
+internal fun FolderRow(
+    d: LibFolder, meta: FolderMeta, pinned: Boolean, locked: Boolean, onClick: () -> Unit, onMenu: () -> Unit,
+    selecting: Boolean = false, selected: Boolean = false,
+) {
     val color = Color(FOLDER_COLORS.getOrElse(meta.color) { FOLDER_COLORS[0] })
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onClick, onLongClick = onMenu).padding(vertical = 6.dp, horizontal = 4.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onMenu).padding(vertical = 6.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
@@ -176,12 +184,40 @@ internal fun FolderRow(d: LibFolder, meta: FolderMeta, pinned: Boolean, locked: 
             Text(if (locked) "مقفول 🔒" else "${d.count} ملف • ${formatBytes(d.size)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (pinned) Icon(Icons.Filled.PushPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-        IconButton(onClick = onMenu) { Icon(Icons.Filled.MoreVert, "خيارات") }
+        if (selecting) androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onClick() })
+        else IconButton(onClick = onMenu) { Icon(Icons.Filled.MoreVert, "خيارات") }
+    }
+}
+
+/** Bar shown while folders are being picked to move. */
+@Composable
+internal fun FolderSelectBar(count: Int, onClose: () -> Unit, onAll: () -> Unit, onMove: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "إلغاء") }
+            Text("$count مجلد متحدد", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onAll) { Icon(Icons.Filled.SelectAll, "حدد الكل") }
+            androidx.compose.material3.Button(onClick = onMove, enabled = count > 0, modifier = Modifier.padding(end = 8.dp)) {
+                Icon(Icons.AutoMirrored.Filled.DriveFileMove, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("انقل")
+            }
+        }
+    }
+}
+
+/** Shown after a move: «تراجع» puts the folders back. */
+@Composable
+internal fun UndoBar(text: String, onUndo: () -> Unit, onGone: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(text) { kotlinx.coroutines.delay(9000); onGone() }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, Modifier.weight(1f), fontSize = 13.sp)
+            TextButton(onClick = onUndo) { Text("تراجع") }
+        }
     }
 }
 
 @Composable
-internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onDismiss: () -> Unit) {
+internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onMove: () -> Unit, onSelect: () -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     var renaming by remember { mutableStateOf(false) }
     var coloring by remember { mutableStateOf(false) }
@@ -193,6 +229,8 @@ internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onDi
             Text("${d.count} ملف • ${formatBytes(d.size)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Action(Icons.Filled.DriveFileRenameOutline, "إعادة تسمية") { renaming = true }
+            Action(Icons.AutoMirrored.Filled.DriveFileMove, "انقله لمجلد") { onMove(); onDismiss() }
+            Action(Icons.Filled.Checklist, "حدّد كذا مجلد وانقلهم") { onSelect(); onDismiss() }
             Action(Icons.Filled.Palette, "لون المجلد") { coloring = true }
             Action(Icons.Filled.PushPin, if (pinned) "شيل التثبيت" else "ثبّته فوق") { Library.togglePin("dir:" + d.rel); onDismiss() }
             if (meta.locked) Action(Icons.Filled.LockOpen, "شيل القفل") {
@@ -235,25 +273,51 @@ internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onDi
     )
 }
 
-/** Pick where to move files (any folder, or the top of the library). */
+/**
+ * Pick where to move something: the folders as a tree (inside each other), with the colour of each.
+ * [disabled] says why a place can't be used (shown dimmed, with the reason).
+ */
 @Composable
-internal fun FolderPicker(title: String, exclude: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+internal fun FolderPicker(
+    title: String, exclude: String?, onDismiss: () -> Unit,
+    disabled: (String) -> String? = { null }, onPick: (String) -> Unit,
+) {
     val folders by Library.folders.collectAsState()
+    val meta by Library.meta.collectAsState()
     var creating by remember { mutableStateOf(false) }
-    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
+    val gold = MaterialTheme.colorScheme.primary
+    @Composable
+    fun Place(label: String, sub: String, depth: Int, color: Color, icon: androidx.compose.ui.graphics.vector.ImageVector, why: String?, rel: String) {
+        val ok = why == null
+        Row(
+            Modifier.fillMaxWidth().padding(start = (depth * 18).dp).clip(RoundedCornerShape(12.dp))
+                .clickable(enabled = ok) { onPick(rel) }.padding(vertical = 8.dp, horizontal = 8.dp)
+                .then(if (ok) Modifier else Modifier.alpha(0.38f)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(color.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = color, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                Text(why ?: sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                item {
-                    Text("📚  المكتبة (برّه المجلدات)", Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onPick("") }.padding(12.dp))
-                }
-                items(folders.filter { it.rel != exclude }.sortedBy { it.rel.lowercase() }) { d ->
-                    Text(
-                        "📁  " + d.rel.replace("/", " › "),
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onPick(d.rel) }.padding(12.dp),
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
+            LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                item { Place("المكتبة (برّه المجلدات)", "المستوى الأول", 0, gold, Icons.Filled.Home, disabled(""), "") }
+                items(
+                    folders.filter { it.rel != exclude }.sortedBy { it.rel.split('/').joinToString("\u0000") { p -> p.lowercase() } },
+                    key = { it.rel },
+                ) { d ->
+                    val c = Color(FOLDER_COLORS.getOrElse(meta[d.rel]?.color ?: 0) { FOLDER_COLORS[0] })
+                    Place(d.name, "${d.count} ملف", d.rel.count { it == '/' } + 1, c, Icons.Filled.Folder, disabled(d.rel), d.rel)
                 }
                 item { TextButton(onClick = { creating = true }) { Text("+ مجلد جديد") } }
             }

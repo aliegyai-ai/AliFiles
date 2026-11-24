@@ -186,6 +186,11 @@ fun LibraryScreen() {
     var current by LibraryTabState.folder
     var selection by remember { mutableStateOf(setOf<String>()) }
     var folderMenu by remember { mutableStateOf<LibFolder?>(null) }
+    // moving folders into folders
+    var folderSel by remember { mutableStateOf(setOf<String>()) }
+    var movingFolders by remember { mutableStateOf<List<LibFolder>?>(null) }
+    var clashAsk by remember { mutableStateOf<Triple<List<LibFolder>, String, List<LibFolder>>?>(null) }
+    var undoMove by remember { mutableStateOf<Pair<String, List<Pair<String, String>>>?>(null) }
     var newFolder by remember { mutableStateOf(false) }
     var showTrash by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf<List<LibFile>?>(null) }
@@ -202,8 +207,9 @@ fun LibraryScreen() {
             unlockWithPhoneLock(ctx, "افتح المجلد") { LibraryTabState.unlocked += rel; current = rel }
         } else current = rel
     }
-    androidx.activity.compose.BackHandler(enabled = selection.isNotEmpty() || (current.isNotEmpty() && filter == LFilter.ALL)) {
-        if (selection.isNotEmpty()) selection = emptySet()
+    androidx.activity.compose.BackHandler(enabled = selection.isNotEmpty() || folderSel.isNotEmpty() || (current.isNotEmpty() && filter == LFilter.ALL)) {
+        if (folderSel.isNotEmpty()) folderSel = emptySet()
+        else if (selection.isNotEmpty()) selection = emptySet()
         else current = if ('/' in current) current.substringBeforeLast('/') else ""
     }
 
@@ -277,7 +283,43 @@ fun LibraryScreen() {
     }
     fun press(f: LibFile) { selection = selection + f.path }
 
+    fun runMove(list: List<LibFolder>, target: String, mode: Clash) {
+        val back = mutableListOf<Pair<String, String>>()
+        var failed = 0
+        list.forEach { d ->
+            val merging = mode == Clash.MERGE && Library.folderClash(d.rel, target)
+            val nr = Library.moveFolder(d.rel, target, mode)
+            if (nr == null) failed++ else if (!merging) back += nr to d.rel
+        }
+        folderSel = emptySet(); movingFolders = null; clashAsk = null
+        val where = if (target.isEmpty()) "المكتبة" else target.substringAfterLast('/')
+        val done = list.size - failed
+        if (done > 0) undoMove = ("اتنقل ${if (done == 1) "«${list[0].name}»" else "$done مجلد"} لـ «$where»") to back
+        if (failed > 0) toast("تعذر نقل $failed مجلد")
+    }
+    fun startMove(list: List<LibFolder>, target: String) {
+        val clash = list.filter { Library.folderClash(it.rel, target) }
+        if (clash.isEmpty()) runMove(list, target, Clash.RENAME) else { movingFolders = null; clashAsk = Triple(list, target, clash) }
+    }
+    fun askMove(list: List<LibFolder>) {
+        if (list.any { Library.isLocked(it.rel) }) unlockWithPhoneLock(ctx, "انقل المجلد المقفول") { movingFolders = list }
+        else movingFolders = list
+    }
+
     Column(Modifier.fillMaxSize()) {
+        if (folderSel.isNotEmpty()) FolderSelectBar(
+            count = folderSel.size,
+            onClose = { folderSel = emptySet() },
+            onAll = { folderSel = subFolders.map { it.rel }.toSet() },
+            onMove = { askMove(subFolders.filter { it.rel in folderSel }) },
+        )
+        undoMove?.let { (text, back) ->
+            UndoBar(text, onUndo = {
+                val fails = back.count { (now, old) -> !Library.undoMoveFolder(now, old) }
+                undoMove = null
+                toast(if (fails == 0) "رجعوا مكانهم" else "تعذر التراجع عن $fails")
+            }, onGone = { undoMove = null })
+        }
         if (selection.isNotEmpty()) SelectionBar(
             count = selection.size,
             onClose = { selection = emptySet() },
@@ -358,7 +400,12 @@ fun LibraryScreen() {
                 verticalArrangement = Arrangement.spacedBy(if (filter == LFilter.VIDEO) 12.dp else 2.dp),
             ) {
                 items(subFolders, key = { "dir:" + it.rel }, span = { GridItemSpan(maxLineSpan) }) { d ->
-                    FolderRow(d, meta[d.rel] ?: FolderMeta(), pinned = "dir:" + d.rel in pins, locked = Library.isLocked(d.rel), onClick = { openFolder(d.rel) }, onMenu = { folderMenu = d })
+                    FolderRow(
+                        d, meta[d.rel] ?: FolderMeta(), pinned = "dir:" + d.rel in pins, locked = Library.isLocked(d.rel),
+                        onClick = { if (folderSel.isNotEmpty()) folderSel = if (d.rel in folderSel) folderSel - d.rel else folderSel + d.rel else openFolder(d.rel) },
+                        onMenu = { if (folderSel.isNotEmpty()) folderSel = if (d.rel in folderSel) folderSel - d.rel else folderSel + d.rel else folderMenu = d },
+                        selecting = folderSel.isNotEmpty(), selected = d.rel in folderSel,
+                    )
                 }
                 if (filter == LFilter.AUDIO || filter == LFilter.FAV || filter == LFilter.NOMUSIC || filter == LFilter.LONG) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -406,7 +453,42 @@ fun LibraryScreen() {
             Library.editCustom(cc.copy(name = name.trim(), color = color, icon = icon)); editCat = null
         }
     }
-    folderMenu?.let { d -> FolderActions(d, meta[d.rel] ?: FolderMeta(), "dir:" + d.rel in pins) { folderMenu = null } }
+    folderMenu?.let { d ->
+        FolderActions(
+            d, meta[d.rel] ?: FolderMeta(), "dir:" + d.rel in pins,
+            onMove = { askMove(listOf(d)) },
+            onSelect = { selection = emptySet(); folderSel = setOf(d.rel) },
+        ) { folderMenu = null }
+    }
+    movingFolders?.let { l ->
+        FolderPicker(
+            title = if (l.size == 1) "انقل «${l[0].name}» لـ…" else "انقل ${l.size} مجلد لـ…",
+            exclude = null, onDismiss = { movingFolders = null },
+            disabled = { rel ->
+                when {
+                    l.any { rel == it.rel } -> "ده المجلد نفسه"
+                    l.any { rel.startsWith(it.rel + "/") } -> "جوه المجلد اللي بتنقله"
+                    l.all { it.parent == rel } -> "مكانه الحالي"
+                    else -> null
+                }
+            },
+        ) { target -> startMove(l, target) }
+    }
+    clashAsk?.let { (list, target, clash) ->
+        AlertDialog(
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+            onDismissRequest = { clashAsk = null },
+            title = { Text(if (clash.size == 1) "فيه مجلد «${clash[0].name}» هناك" else "فيه ${clash.size} مجلدات بنفس الاسم هناك") },
+            text = { Text("تدمج محتوياتهم مع بعض، ولا تحتفظ بالاتنين (النقول بيتغيّر اسمها «اسم (2)»)؟ الدمج ما ينفعش التراجع عنه.") },
+            confirmButton = { TextButton(onClick = { runMove(list, target, Clash.MERGE) }) { Text("ادمجهم") } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { runMove(list, target, Clash.RENAME) }) { Text("احتفظ بالاتنين") }
+                    TextButton(onClick = { clashAsk = null }) { Text("إلغاء") }
+                }
+            },
+        )
+    }
     if (newFolder) NameDialog("مجلد جديد", "") { name ->
         newFolder = false
         if (!name.isNullOrBlank() && !Library.createFolder(current, name)) toast("فيه مجلد بالاسم ده")
