@@ -38,6 +38,16 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -134,6 +144,33 @@ fun LibraryScreen() {
     var filter by remember { mutableStateOf(LFilter.ALL) }
     var menuFor by remember { mutableStateOf<LibFile?>(null) }
     var openList by remember { mutableStateOf<Playlist?>(null) }
+    val folders by Library.folders.collectAsState()
+    val meta by Library.meta.collectAsState()
+    val pins by Library.pinned.collectAsState()
+    val trash by Library.trash.collectAsState()
+    var current by LibraryTabState.folder
+    var selection by remember { mutableStateOf(setOf<String>()) }
+    var folderMenu by remember { mutableStateOf<LibFolder?>(null) }
+    var newFolder by remember { mutableStateOf(false) }
+    var showTrash by remember { mutableStateOf(false) }
+    var moving by remember { mutableStateOf<List<LibFile>?>(null) }
+    var zipping by remember { mutableStateOf<List<LibFile>?>(null) }
+    var confirmDeleteMany by remember { mutableStateOf<List<LibFile>?>(null) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val sortBy = Library.sort.value
+    fun toast(t: String) = Toast.makeText(ctx, t, Toast.LENGTH_SHORT).show()
+    // a locked folder that was opened stays open until you leave the app
+    val visible = files.filter { !Library.isLocked(it.folder) || LibraryTabState.unlocked.any { u -> it.folder == u || it.folder.startsWith("$u/") } }
+    fun openFolder(rel: String) {
+        if (Library.isLocked(rel) && LibraryTabState.unlocked.none { rel == it || rel.startsWith("$it/") }) {
+            unlockWithPhoneLock(ctx, "افتح المجلد") { LibraryTabState.unlocked += rel; current = rel }
+        } else current = rel
+    }
+    androidx.activity.compose.BackHandler(enabled = selection.isNotEmpty() || (current.isNotEmpty() && filter == LFilter.ALL)) {
+        if (selection.isNotEmpty()) selection = emptySet()
+        else current = if ('/' in current) current.substringBeforeLast('/') else ""
+    }
 
     // play files straight from the phone (not copied into the app)
     val pickFromPhone = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -147,15 +184,18 @@ fun LibraryScreen() {
         }
     }
 
-    val shown = when (filter) {
-        LFilter.ALL -> files
-        LFilter.VIDEO -> files.filter { it.kind == FileKind.VIDEO }
-        LFilter.AUDIO -> files.filter { it.kind == FileKind.AUDIO }
-        LFilter.FAV -> files.filter { it.path in favs }
-        LFilter.IMAGE -> files.filter { it.kind == FileKind.IMAGE }
-        LFilter.OTHER -> files.filter { it.kind != FileKind.VIDEO && it.kind != FileKind.AUDIO && it.kind != FileKind.IMAGE }
+    val shown = Library.sorted(when (filter) {
+        LFilter.ALL -> files.filter { it.folder == current }
+        LFilter.VIDEO -> visible.filter { it.kind == FileKind.VIDEO }
+        LFilter.AUDIO -> visible.filter { it.kind == FileKind.AUDIO }
+        LFilter.FAV -> visible.filter { it.path in favs }
+        LFilter.IMAGE -> visible.filter { it.kind == FileKind.IMAGE }
+        LFilter.OTHER -> visible.filter { it.kind != FileKind.VIDEO && it.kind != FileKind.AUDIO && it.kind != FileKind.IMAGE }
         LFilter.LISTS -> emptyList()
-    }
+    })
+    val subFolders = if (filter == LFilter.ALL) Library.sortedFolders(folders.filter { it.parent == current }) else emptyList()
+    val selected = files.filter { it.path in selection }
+
 
     fun open(f: LibFile, list: List<LibFile>) {
         when (f.kind) {
@@ -166,15 +206,51 @@ fun LibraryScreen() {
             else -> FileStore.open(ctx, Library.uriFor(f.file), f.mime)
         }
     }
+    fun tap(f: LibFile, list: List<LibFile>) {
+        if (selection.isNotEmpty()) selection = if (f.path in selection) selection - f.path else selection + f.path
+        else open(f, list)
+    }
+    fun press(f: LibFile) { selection = selection + f.path }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (selection.isNotEmpty()) SelectionBar(
+            count = selection.size,
+            onClose = { selection = emptySet() },
+            onAll = { selection = shown.map { it.path }.toSet() },
+            onMove = { moving = selected },
+            onZip = { zipping = selected },
+            onCopy = { selected.forEach { runCatching { Library.copy(it) } }; toast("اتعمل نسخة"); selection = emptySet() },
+            onGallery = {
+                val l = selected; selection = emptySet()
+                scope.launch { var n = 0; l.forEach { f -> if (runCatching { Library.saveToGallery(f) }.isSuccess) n++ }; toast("اتحفظ $n في الاستديو") }
+            },
+            onVault = {
+                val l = selected; selection = emptySet()
+                scope.launch { l.forEach { runCatching { Library.moveToVault(it) } }; toast("اتنقلوا للخزنة 🔒") }
+            },
+            onDelete = { confirmDeleteMany = selected },
+        ) else Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("${files.size} ملف • ${formatBytes(Library.totalSize())}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("محفوظين جوه التطبيق بس", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            OutlinedButton(onClick = { pickFromPhone.launch(arrayOf("video/*", "audio/*")) }) {
-                Icon(Icons.Filled.PhoneAndroid, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("شغّل من الموبايل")
+            IconButton(onClick = { pickFromPhone.launch(arrayOf("video/*", "audio/*")) }) { Icon(Icons.Filled.PhoneAndroid, "شغّل من الموبايل") }
+            if (filter == LFilter.ALL) IconButton(onClick = { newFolder = true }) { Icon(Icons.Filled.CreateNewFolder, "مجلد جديد") }
+            Box {
+                IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "ترتيب") }
+                androidx.compose.material3.DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                    LibSort.entries.forEach { o ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text((if (sortBy == o) "✓ " else "") + o.label) },
+                            onClick = { Library.setSort(o); sortMenu = false },
+                        )
+                    }
+                }
+            }
+            IconButton(onClick = { showTrash = true }) {
+                androidx.compose.material3.BadgedBox(badge = { if (trash.isNotEmpty()) androidx.compose.material3.Badge { Text("${trash.size}") } }) {
+                    Icon(Icons.Filled.DeleteOutline, "سلة المهملات")
+                }
             }
         }
         SeparationJobs()
@@ -182,15 +258,20 @@ fun LibraryScreen() {
             LFilter.entries.forEach { f -> FilterChip(selected = filter == f, onClick = { filter = f; openList = null }, label = { Text(f.label) }) }
         }
 
+        if (filter == LFilter.ALL && current.isNotEmpty()) Breadcrumbs(current) { current = it }
+
         when {
             filter == LFilter.LISTS -> PlaylistsView(playlists, openList, onOpen = { openList = it }, onFile = { f, l -> open(f, l) }, onMenu = { menuFor = it })
-            shown.isEmpty() -> EmptyLibrary(filter)
+            shown.isEmpty() && subFolders.isEmpty() -> EmptyLibrary(filter, inFolder = current.isNotEmpty())
             else -> LazyVerticalGrid(
                 columns = GridCells.Fixed(if (filter == LFilter.VIDEO) 2 else 1),
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 90.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(if (filter == LFilter.VIDEO) 12.dp else 2.dp),
             ) {
+                items(subFolders, key = { "dir:" + it.rel }, span = { GridItemSpan(maxLineSpan) }) { d ->
+                    FolderRow(d, meta[d.rel] ?: FolderMeta(), pinned = "dir:" + d.rel in pins, locked = Library.isLocked(d.rel), onClick = { openFolder(d.rel) }, onMenu = { folderMenu = d })
+                }
                 if (filter == LFilter.AUDIO || filter == LFilter.FAV) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         val songs = shown.filter { it.kind == FileKind.AUDIO }
@@ -205,14 +286,44 @@ fun LibraryScreen() {
                     }
                 }
                 items(shown, key = { it.path }) { f ->
-                    if (filter == LFilter.VIDEO) VideoCard(f, onClick = { open(f, shown) }, onMenu = { menuFor = f })
-                    else FileRow(f, favorite = f.path in favs, onClick = { open(f, shown) }, onMenu = { menuFor = f })
+                    if (filter == LFilter.VIDEO) VideoCard(f, selected = f.path in selection, onClick = { tap(f, shown) }, onLongClick = { press(f) }, onMenu = { menuFor = f })
+                    else FileRow(f, favorite = f.path in favs, pinned = f.path in pins, selected = f.path in selection, onClick = { tap(f, shown) }, onLongClick = { press(f) }, onMenu = { menuFor = f })
                 }
             }
         }
     }
 
-    menuFor?.let { f -> FileActions(f) { menuFor = null } }
+    menuFor?.let { f -> FileActions(f, onMove = { moving = listOf(f) }, onZip = { zipping = listOf(f) }) { menuFor = null } }
+    folderMenu?.let { d -> FolderActions(d, meta[d.rel] ?: FolderMeta(), "dir:" + d.rel in pins) { folderMenu = null } }
+    if (newFolder) NameDialog("مجلد جديد", "") { name ->
+        newFolder = false
+        if (!name.isNullOrBlank() && !Library.createFolder(current, name)) toast("فيه مجلد بالاسم ده")
+    }
+    moving?.let { l ->
+        FolderPicker(title = "انقل ${l.size} ملف لـ…", exclude = null, onDismiss = { moving = null }) { target ->
+            val n = Library.move(l, target); moving = null; selection = emptySet()
+            toast("اتنقل $n ملف")
+        }
+    }
+    zipping?.let { l ->
+        NameDialog("اسم الملف المضغوط", if (l.size == 1) l[0].title else "ملفات") { name ->
+            zipping = null; selection = emptySet()
+            if (!name.isNullOrBlank()) scope.launch {
+                toast("بيضغط…")
+                runCatching { Library.zip(l, name.trim(), l.first().folder) }.onSuccess { toast("اتعمل ${it.name}") }.onFailure { toast(it.message ?: "تعذر الضغط") }
+            }
+        }
+    }
+    confirmDeleteMany?.let { l ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteMany = null },
+            title = { Text("تمسح ${l.size} ملف؟") },
+            text = { Text("هيروحوا سلة المهملات، وتقدر ترجّعهم خلال 30 يوم.") },
+            confirmButton = { TextButton(onClick = { Library.deleteMany(l); confirmDeleteMany = null; selection = emptySet() }) { Text("امسح", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { confirmDeleteMany = null }) { Text("لأ") } },
+        )
+    }
+    if (showTrash) TrashSheet { showTrash = false }
 }
 
 /** Cards for «remove the music» jobs: progress, time left, cancel, play when done. */
@@ -259,13 +370,13 @@ private fun SeparationJobs() {
 }
 
 @Composable
-private fun EmptyLibrary(filter: LFilter) {
+private fun EmptyLibrary(filter: LFilter, inFolder: Boolean = false) {
     Column(Modifier.fillMaxSize().padding(36.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Icon(Icons.Filled.VideoLibrary, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
         Spacer(Modifier.height(12.dp))
-        Text(if (filter == LFilter.FAV) "مفيش حاجة في المفضلة" else "المكتبة فاضية", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text(if (inFolder) "المجلد فاضي" else if (filter == LFilter.FAV) "مفيش حاجة في المفضلة" else "المكتبة فاضية", fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Text(
-            if (filter == LFilter.FAV) "دوس ♡ على أي ملف عشان يظهر هنا." else "أي حاجة تحمّلها هتتحفظ هنا جوه التطبيق، وانت تختار تحفظها على الموبايل وقت ما تحب.",
+            if (inFolder) "اضغط مطوّل على ملفات وانقلها هنا." else if (filter == LFilter.FAV) "دوس ♡ على أي ملف عشان يظهر هنا." else "أي حاجة تحمّلها هتتحفظ هنا جوه التطبيق، وانت تختار تحفظها على الموبايل وقت ما تحب.",
             textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp,
         )
     }
@@ -284,10 +395,14 @@ private fun rememberDuration(f: LibFile): Long {
 }
 
 @Composable
-private fun VideoCard(f: LibFile, onClick: () -> Unit, onMenu: () -> Unit) {
+private fun VideoCard(f: LibFile, selected: Boolean = false, onClick: () -> Unit, onLongClick: () -> Unit = onClick, onMenu: () -> Unit) {
     val thumb = rememberThumb(f)
     val dur = rememberDuration(f)
-    Column(Modifier.clip(RoundedCornerShape(14.dp)).combinedClickable(onClick = onClick, onLongClick = onMenu)) {
+    Column(
+        Modifier.clip(RoundedCornerShape(14.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 10f).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
             if (thumb != null) Image(thumb.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(Modifier.align(Alignment.Center).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
@@ -306,12 +421,14 @@ private fun VideoCard(f: LibFile, onClick: () -> Unit, onMenu: () -> Unit) {
 }
 
 @Composable
-private fun FileRow(f: LibFile, favorite: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
+private fun FileRow(f: LibFile, favorite: Boolean, pinned: Boolean = false, selected: Boolean = false, onClick: () -> Unit, onLongClick: () -> Unit = onClick, onMenu: () -> Unit) {
     val thumb = rememberThumb(f)
     val dur = rememberDuration(f)
     val gold = MaterialTheme.colorScheme.primary
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onClick, onLongClick = onMenu).padding(vertical = 6.dp, horizontal = 4.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(if (selected) gold.copy(alpha = 0.22f) else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(vertical = 6.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -320,6 +437,9 @@ private fun FileRow(f: LibFile, favorite: Boolean, onClick: () -> Unit, onMenu: 
         ) {
             if (thumb != null) Image(thumb.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else Icon(kindIcon(f.kind), null, tint = gold)
+            if (selected) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.CheckCircle, null, tint = gold)
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -329,6 +449,7 @@ private fun FileRow(f: LibFile, favorite: Boolean, onClick: () -> Unit, onMenu: 
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (pinned) Icon(Icons.Filled.PushPin, null, tint = gold, modifier = Modifier.size(16.dp))
         if (favorite) Icon(Icons.Filled.Favorite, null, tint = gold, modifier = Modifier.size(16.dp))
         IconButton(onClick = onMenu) { Icon(Icons.Filled.MoreVert, "خيارات") }
     }
@@ -375,7 +496,9 @@ private fun PlaylistsView(lists: List<Playlist>, open: Playlist?, onOpen: (Playl
 // ============================================================ actions on one file
 
 @Composable
-private fun FileActions(f: LibFile, onDismiss: () -> Unit) {
+private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit = {}, onDismiss: () -> Unit) {
+    val pins by Library.pinned.collectAsState()
+    var tone by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val favs by Library.favorites.collectAsState()
@@ -405,7 +528,16 @@ private fun FileActions(f: LibFile, onDismiss: () -> Unit) {
                 }
                 onDismiss()
             }
+            if (f.kind == FileKind.VIDEO || f.kind == FileKind.IMAGE || f.kind == FileKind.AUDIO) Action(Icons.Filled.PhotoLibrary, if (f.kind == FileKind.AUDIO) "احفظ في موسيقى الموبايل" else "احفظ في الاستديو") {
+                scope.launch { runCatching { Library.saveToGallery(f) }.onSuccess { toast(if (f.kind == FileKind.AUDIO) "اتحفظ في Music/AliFiles" else "اتحفظ في الاستديو") }.onFailure { toast(it.message ?: "تعذر الحفظ") } }
+                onDismiss()
+            }
             Action(Icons.AutoMirrored.Filled.DriveFileMove, "احفظ في مكان تختاره…") { saveAs.launch(f.name) }
+            Action(Icons.Filled.Folder, "انقل لمجلد") { onDismiss(); onMove() }
+            Action(Icons.Filled.ContentCopy, "اعمل نسخة") { runCatching { Library.copy(f) }.onSuccess { toast("اتعمل نسخة") }; onDismiss() }
+            Action(Icons.Filled.FolderZip, "اضغطه (zip)") { onDismiss(); onZip() }
+            Action(Icons.Filled.PushPin, if (f.path in pins) "شيل التثبيت" else "ثبّته فوق") { Library.togglePin(f.path); onDismiss() }
+            if (f.kind == FileKind.AUDIO) Action(Icons.Filled.NotificationsActive, "اعمله نغمة") { tone = true }
             Action(Icons.Filled.Share, "مشاركة") { onDismiss(); FileStore.share(ctx, Library.uriFor(f.file), f.mime) }
             val fav = f.path in favs
             Action(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, if (fav) "شيل من المفضلة" else "ضيف للمفضلة") { Library.toggleFavorite(f.path); onDismiss() }
@@ -435,17 +567,18 @@ private fun FileActions(f: LibFile, onDismiss: () -> Unit) {
         onDismiss()
     }
     if (pickList) PlaylistPicker(f) { pickList = false; onDismiss() }
+    if (tone) ToneDialog(f) { tone = false; onDismiss() }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
         title = { Text("تمسح «${f.title}»؟") },
-        text = { Text("هيتمسح من المكتبة نهائيًا.") },
+        text = { Text("هيروح سلة المهملات، وتقدر ترجّعه خلال 30 يوم.") },
         confirmButton = { TextButton(onClick = { confirmDelete = false; Library.delete(f); onDismiss() }) { Text("امسح", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("لأ") } },
     )
 }
 
 @Composable
-private fun Action(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
+internal fun Action(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
     val c = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     ListItem(
         headlineContent = { Text(label, color = c) },
@@ -478,7 +611,7 @@ private fun PlaylistPicker(f: LibFile, onDone: () -> Unit) {
 }
 
 @Composable
-private fun NameDialog(title: String, initial: String, onDone: (String?) -> Unit) {
+internal fun NameDialog(title: String, initial: String, onDone: (String?) -> Unit) {
     var text by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = { onDone(null) },
@@ -491,4 +624,10 @@ private fun NameDialog(title: String, initial: String, onDone: (String?) -> Unit
 
 
 /** which page of the «المكتبة» tab is open (0 library, 1 downloads) — kept outside so other screens can switch it */
-object LibraryTabState { val page = androidx.compose.runtime.mutableIntStateOf(0) }
+object LibraryTabState {
+    val page = androidx.compose.runtime.mutableIntStateOf(0)
+    /** the folder open in the library ("" = top) */
+    val folder = mutableStateOf("")
+    /** locked folders opened since the app was opened */
+    val unlocked = HashSet<String>()
+}
