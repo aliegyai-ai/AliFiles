@@ -87,8 +87,14 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     }
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
         if (Updater.shouldAutoCheck()) {
-            autoUpdateHidden = false
-            scope.launch { Updater.check(ctx.applicationContext) }
+            val auto = com.ali.files.util.AppSettings.updateMode.value != "ask"
+            // automatic: no question — download quietly now, install when you leave the app (like Google Play)
+            autoUpdateHidden = auto
+            scope.launch {
+                Updater.check(ctx.applicationContext)
+                val s = Updater.state.value
+                if (auto && s is com.ali.files.update.UpdateState.Available) Updater.download(ctx.applicationContext, s.info)
+            }
         }
     }
 

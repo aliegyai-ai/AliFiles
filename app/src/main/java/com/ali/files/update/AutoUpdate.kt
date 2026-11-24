@@ -48,6 +48,17 @@ object AutoUpdate {
         WorkManager.getInstance(c).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE, req)
     }
 
+    /** You just left the app: if an update is waiting, install it in a few seconds. */
+    fun installOnLeave(c: Context) {
+        if (AppSettings.updateMode.value != "auto") return
+        val s = Updater.state.value
+        if (s !is UpdateState.Ready && s !is UpdateState.Available) return
+        WorkManager.getInstance(c).enqueueUniqueWork(
+            "update-now", androidx.work.ExistingWorkPolicy.REPLACE,
+            androidx.work.OneTimeWorkRequestBuilder<Worker>().setInitialDelay(4, TimeUnit.SECONDS).build(),
+        )
+    }
+
     class Worker(c: Context, p: WorkerParameters) : CoroutineWorker(c, p) {
         override suspend fun doWork(): Result {
             val app = applicationContext
@@ -56,7 +67,7 @@ object AutoUpdate {
                 (Updater.state.value as? UpdateState.Available)?.let { notifyAvailable(app, it.info) }
                 return Result.success()
             }
-            Updater.check(app)
+            if (Updater.state.value !is UpdateState.Ready) Updater.check(app)
             val s = Updater.state.value
             if (s is UpdateState.Available) Updater.download(app, s.info)
             val ready = Updater.state.value as? UpdateState.Ready ?: return Result.success()

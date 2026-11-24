@@ -99,7 +99,10 @@ class MainActivity : FragmentActivity() {
         }
         com.ali.files.player.PlayerHub.savePosition()
         browser.saveSession()
-        if (!isChangingConfigurations) { Vault.onAppStop(); leftAt = System.currentTimeMillis() }
+        if (!isChangingConfigurations) {
+            Vault.onAppStop(); leftAt = System.currentTimeMillis()
+            com.ali.files.update.AutoUpdate.installOnLeave(applicationContext)
+        }
     }
 
     /** Small floating video window while using other apps. */
