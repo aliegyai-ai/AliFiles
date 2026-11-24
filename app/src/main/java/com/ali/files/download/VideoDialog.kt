@@ -115,10 +115,10 @@ fun VideoDialog(
 
     val scheme = MaterialTheme.colorScheme
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    // a stray tap or swipe doesn't close it — only «✕» / «إلغاء»
-    val sheet = com.ali.files.ui.rememberGuardedSheet()
-    val close = { sheet.close(onDismiss) }
-    ModalBottomSheet(onDismissRequest = {}, sheetState = sheet.state) {
+    // a stray tap or swipe doesn't close it — only «✕» / «إلغاء» / back. It's part of the screen (not a
+    // separate window), so closing it can never leave the browser under it frozen.
+    val close = onDismiss
+    com.ali.files.ui.OverlaySheet(onBack = close) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).navigationBarsPadding().padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -159,7 +159,7 @@ fun VideoDialog(
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(onClick = close, modifier = Modifier.weight(1f)) { Text("إلغاء") }
                         Button(onClick = {
-                            sheet.close { onFallback(DownloadRequest(req.url, URLUtil.guessFileName(req.url, null, null), headers = req.headers)) }
+                            run { onFallback(DownloadRequest(req.url, URLUtil.guessFileName(req.url, null, null), headers = req.headers)) }
                         }, modifier = Modifier.weight(1f)) { Text("حمّله كملف عادي") }
                     }
                 }
@@ -246,7 +246,7 @@ fun VideoDialog(
                             val c = choice ?: return@Button
                             if (c == AUDIO) { AppSettings.setAudioQuality(audioQ.name); AppSettings.setAudioFormat(audioFmt) }
                             Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, if (c == AUDIO) audioQ else null, audioFmt)
-                            sheet.close { onStarted() }
+                            onStarted()
                         },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(52.dp),

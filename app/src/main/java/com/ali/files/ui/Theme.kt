@@ -16,6 +16,12 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ali.files.R
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.verticalScroll
@@ -157,4 +163,38 @@ fun rememberGuardedSheet(): GuardedSheet {
     )
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     return androidx.compose.runtime.remember(state) { GuardedSheet(state, allow, scope) }
+}
+
+
+/**
+ * A bottom sheet drawn inside the app's own layout — not in a separate window like ModalBottomSheet.
+ * A separate window that was removed while the page under it was loading left the browser frozen;
+ * this one is just part of the screen, so closing it can't leave anything stuck. Only [onBack]
+ * (back button) or the sheet's own buttons close it — a stray tap on the dim area does nothing.
+ */
+@androidx.compose.runtime.Composable
+fun OverlaySheet(onBack: () -> Unit, content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    var shown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { shown = true }
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        androidx.compose.ui.Modifier.fillMaxSize()
+            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f))
+            .pointerInput(Unit) { detectTapGestures { } },
+        contentAlignment = androidx.compose.ui.Alignment.BottomCenter,
+    ) {
+        val maxH = maxHeight * 0.92f
+        androidx.compose.animation.AnimatedVisibility(
+            visible = shown,
+            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
+        ) {
+            androidx.compose.material3.Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth().heightIn(max = maxH),
+            ) {
+                androidx.compose.foundation.layout.Column(content = content)
+            }
+        }
+    }
 }
