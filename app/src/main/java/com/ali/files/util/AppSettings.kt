@@ -25,6 +25,9 @@ object AppSettings {
     @Volatile var inPageButtonsFast = false
     /** make websites dark when the phone is in dark mode */
     val darkSites = mutableStateOf(true)
+    /** what the app calls you ("" = not set yet); [nameAsked] = we already asked once */
+    val userName = mutableStateOf("")
+    val nameAsked = mutableStateOf(false)
     /** the last audio-only choice (remembered) */
     val audioQuality = mutableStateOf("HIGH")
     val audioFormat = mutableStateOf("mp3")
@@ -63,6 +66,8 @@ object AppSettings {
         privateLock.value = sp.getBoolean("privateLock", false)
         inPageButtons.value = sp.getBoolean("inPageButtons", false); inPageButtonsFast = inPageButtons.value
         darkSites.value = sp.getBoolean("darkSites", true)
+        userName.value = sp.getString("userName", "") ?: ""
+        nameAsked.value = sp.getBoolean("nameAsked", false)
         audioQuality.value = sp.getString("audioQuality", "HIGH") ?: "HIGH"
         audioFormat.value = sp.getString("audioFormat", "mp3") ?: "mp3"
         updateMode.value = sp.getString("updateMode", "auto") ?: "auto"
@@ -97,6 +102,10 @@ object AppSettings {
     fun setKeepSites(v: Set<String>) { keepSites.value = v; sp.edit().putStringSet("keepSites", v).apply() }
     fun setAudioQuality(v: String) { audioQuality.value = v; sp.edit().putString("audioQuality", v).apply() }
     fun setAudioFormat(v: String) { audioFormat.value = v; sp.edit().putString("audioFormat", v).apply() }
+    fun setUserName(v: String) {
+        userName.value = v.trim(); nameAsked.value = true
+        sp.edit().putString("userName", v.trim()).putBoolean("nameAsked", true).apply()
+    }
     fun setDarkSites(v: Boolean) { darkSites.value = v; sp.edit().putBoolean("darkSites", v).apply() }
     fun setPrivateLock(v: Boolean) { privateLock.value = v; sp.edit().putBoolean("privateLock", v).apply() }
     fun setFloatingDownload(v: Boolean) { floatingDownload.value = v; sp.edit().putBoolean("floatingDownload", v).apply() }

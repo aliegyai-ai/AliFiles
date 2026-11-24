@@ -684,7 +684,8 @@ private fun StartPage(c: BrowserController, ui: UiState) {
     }
 
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val greeting = if (hour in 4..11) "صباح الخير يا علي" else "مساء الخير يا علي"
+    val userName = AppSettings.userName.value
+    val greeting = (if (hour in 4..11) "صباح الخير" else "مساء الخير") + if (userName.isNotBlank()) " يا $userName" else ""
     val gold = MaterialTheme.colorScheme.primary
 
     Column(
@@ -702,7 +703,7 @@ private fun StartPage(c: BrowserController, ui: UiState) {
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(greeting.substringBefore(" يا"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                    Text("يا علي", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 21.sp))
+                    Text(if (userName.isNotBlank()) "يا $userName" else "أهلاً بيك", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 21.sp))
                 }
                 Box(
                     Modifier.size(44.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFF231E2C))

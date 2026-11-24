@@ -1,5 +1,7 @@
 package com.ali.files.ui
 
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Person
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
@@ -72,6 +74,36 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("الإعدادات", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 6.dp))
+
+        // your name + share the app
+        var editName by remember { mutableStateOf(false) }
+        val shareCtx = LocalContext.current
+        ListItem(
+            headlineContent = { Text("اسمك") },
+            supportingContent = { Text(AppSettings.userName.value.ifBlank { "مش متحدد" }) },
+            leadingContent = { Icon(Icons.Filled.Person, null, tint = MaterialTheme.colorScheme.primary) },
+            modifier = Modifier.clickable { editName = true },
+        )
+        if (editName) NameAsk("اسمك", "التطبيق هيناديك بيه في الرئيسية", AppSettings.userName.value, onSkip = { editName = false }) {
+            AppSettings.setUserName(it); editName = false
+        }
+        ListItem(
+            headlineContent = { Text("شارك التطبيق") },
+            supportingContent = { Text("ابعت لينك التحميل لحد يجربه") },
+            leadingContent = { Icon(Icons.Filled.Share, null, tint = MaterialTheme.colorScheme.primary) },
+            modifier = Modifier.clickable {
+                val text = "جرّب تطبيق «ملفات علي»: متصفح بيحمّل أي فيديو، ومكتبة ومشغل وخزنة.\n" +
+                    "حمّله من هنا:\nhttps://github.com/aliegyai-ai/AliFiles/releases/download/latest/AliFiles.apk\n\n" +
+                    "لو الموبايل قال «مش مسموح»: الإعدادات ← السماح من المصدر ده ← تثبيت."
+                shareCtx.startActivity(
+                    android.content.Intent.createChooser(
+                        android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text),
+                        "شارك التطبيق",
+                    ),
+                )
+            },
+        )
+        HorizontalDivider()
 
         val updScope = rememberCoroutineScope()
         ListItem(

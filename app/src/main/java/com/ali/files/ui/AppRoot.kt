@@ -157,6 +157,14 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         }
     }
 
+    // ---------------------------------------------- first time: «اسمك إيه؟»
+    if (!com.ali.files.util.AppSettings.nameAsked.value) NameAsk(
+        title = "أهلاً بيك 👋",
+        hint = "اسمك إيه؟ عشان التطبيق يناديك بيه",
+        initial = "",
+        onSkip = { com.ali.files.util.AppSettings.setUserName("") },
+    ) { com.ali.files.util.AppSettings.setUserName(it) }
+
     // ---------------------------------------------- «شوف الجديد» after an update
     var whatsNew by remember { mutableStateOf(com.ali.files.update.AutoUpdate.whatsNew(ctx)) }
     whatsNew?.let { (name, notes) ->
@@ -310,4 +318,24 @@ private fun FloatingNav(tab: Int, activeDownloads: Int, onPick: (Int) -> Unit) {
             }
         }
     }
+}
+
+
+/** Asks for a name (first start, or from settings). */
+@Composable
+fun NameAsk(title: String, hint: String, initial: String, onSkip: () -> Unit, onSave: (String) -> Unit) {
+    var name by remember { mutableStateOf(initial) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onSkip,
+        title = { Text(title) },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+                androidx.compose.material3.OutlinedTextField(value = name, onValueChange = { name = it.take(30) }, singleLine = true, placeholder = { Text("اسمك") })
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onSave(name) }) { Text("تمام") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onSkip) { Text("بعدين") } },
+    )
 }
