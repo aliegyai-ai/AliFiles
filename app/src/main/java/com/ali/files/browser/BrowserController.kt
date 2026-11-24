@@ -125,6 +125,7 @@ class BrowserController(private val activity: Activity) {
     @Volatile var imeOpen = false
     val currentId = mutableLongStateOf(-1L)
     val current: BrowserTab? get() = tabs.firstOrNull { it.id == currentId.longValue }
+    fun homeShowing() = current?.home?.value != false
 
     // ------------------------------------------------------------ private (incognito) space
     /** true while the user is in the private space: its own tabs, purple look, nothing saved */
@@ -138,6 +139,9 @@ class BrowserController(private val activity: Activity) {
     private val profilesSupported: Boolean by lazy {
         runCatching { androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE) }.getOrDefault(false)
     }
+
+    /** the browser is showing just a video in a small floating window */
+    val pipMode = mutableStateOf(false)
 
     /** private tabs: http sites the user chose to open without encryption */
     val httpAllowed = HashSet<String>()
@@ -325,6 +329,7 @@ class BrowserController(private val activity: Activity) {
         val idx = tabs.indexOfFirst { it.id == id }
         if (idx < 0) return
         val tab = tabs.removeAt(idx)
+        BgMedia.tabClosed(tab)
         (tab.frame.parent as? ViewGroup)?.removeView(tab.frame)
         tab.webView.stopLoading()
         tab.webView.destroy()
@@ -655,11 +660,14 @@ class BrowserController(private val activity: Activity) {
         ), VideoButtons.BRIDGE)
         // ad blocker: hides ad boxes and skips YouTube ads (runs before the page's own scripts)
         wv.addJavascriptInterface(AdFilter.Bridge(), AdFilter.BRIDGE)
+        // videos keep playing in the background, with controls in the notification
+        wv.addJavascriptInterface(BgMedia.Bridge(activity, tab), BgMedia.BRIDGE)
         if (docStartScript) {
             // private tabs: anti-fingerprinting, before any of the site's own code
             if (tab.incognito) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, PrivacyShield.script(), setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, AdFilter.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
+            if (AppSettings.bgPlay.value) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, BgMedia.SCRIPT, setOf("*")) }
         }
 
         // hide the toolbar while reading down the page, show it again when scrolling up

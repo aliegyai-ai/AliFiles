@@ -164,6 +164,8 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
 
         HorizontalDivider()
         Section("المتصفح")
+        SwitchRow("الفيديوهات تكمّل في الخلفية", "يوتيوب وأي فيديو في المتصفح يفضل شغال لما تخرج أو تقفل الشاشة، والتحكم من الإشعار", AppSettings.bgPlay.value) { AppSettings.setBgPlay(it) }
+        SwitchRow("صورة داخل صورة", "لو فيديو شغال وخرجت من التطبيق، يتحول لنافذة صغيرة فيها الفيديو بس", AppSettings.browserPip.value) { AppSettings.setBrowserPip(it) }
         SwitchRow(
             "وضع النسيان",
             "المواقع تنسى اللي شفته ودوّرت عليه كل ما ترجع للتطبيق. المواقع اللي عاوزها تفضل فاكراك: من قايمة المتصفح ← «خلّيه فاكرني»",

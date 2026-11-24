@@ -124,7 +124,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                     }
                 }
             }
-            if (!browser.fullscreen.value && tab != UiState.TAB_BROWSER) FloatingNav(tab, activeCount) { ui.tab.intValue = it }
+            if (!browser.fullscreen.value && !browser.pipMode.value && tab != UiState.TAB_BROWSER) FloatingNav(tab, activeCount) { ui.tab.intValue = it }
             }
         },
     ) { pad ->
