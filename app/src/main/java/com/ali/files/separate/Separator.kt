@@ -134,6 +134,7 @@ object Separator {
 
 /** Runs the separation in its own process, with a progress notification. */
 class SeparateService : Service() {
+    private val awake by lazy { com.ali.files.util.KeepAwake(this, "separate") }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var worker: Job? = null
     private val cancelled = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
@@ -170,7 +171,11 @@ class SeparateService : Service() {
                 edit { l -> l.map { if (it.id == id && !it.done) it.copy(done = true, error = "اتلغى") else it } }
             }
         }
-        if (worker?.isActive != true) worker = scope.launch { work() }
+        if (worker?.isActive != true) worker = scope.launch {
+            // screen off / another app: keep the processor awake until the work is done
+            awake.on()
+            try { work() } finally { awake.off() }
+        }
         return START_STICKY
     }
 

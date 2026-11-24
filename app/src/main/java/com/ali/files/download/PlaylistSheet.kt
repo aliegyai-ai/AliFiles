@@ -82,17 +82,19 @@ fun PlaylistSheet(url: String, headers: Map<String, String>, private: Boolean, o
             .onFailure { error = it.message?.lineSequence()?.lastOrNull { l -> l.isNotBlank() }?.take(200) ?: "تعذر قراءة القايمة" }
     }
 
-    ModalBottomSheet(onDismissRequest = {}, sheetState = com.ali.files.ui.stickySheetState()) {
+    val sheet = com.ali.files.ui.rememberGuardedSheet()
+    val close = { sheet.close(onDismiss) }
+    ModalBottomSheet(onDismissRequest = {}, sheetState = sheet.state) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).navigationBarsPadding().padding(bottom = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(info?.title ?: "قايمة تشغيل", fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "قفل") }
+                IconButton(onClick = close) { Icon(Icons.Filled.Close, "قفل") }
             }
             val p = info
             when {
                 error != null -> {
                     Text(error!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 16.dp))
-                    TextButton(onClick = onDismiss) { Text("قفل") }
+                    TextButton(onClick = close) { Text("قفل") }
                 }
                 p == null -> Row(Modifier.padding(vertical = 30.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(24.dp))
@@ -161,7 +163,7 @@ fun PlaylistSheet(url: String, headers: Map<String, String>, private: Boolean, o
                                     libFolder = if (toVault) null else folder, group = if (toVault) null else p.title.take(60),
                                 )
                             }
-                            onStarted(toVault)
+                            sheet.close { onStarted(toVault) }
                         },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(52.dp),

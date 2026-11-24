@@ -624,7 +624,7 @@ class BrowserController(private val activity: Activity) {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(tab: BrowserTab): WebView {
-        val wv = WebView(activity)
+        val wv = PageView(activity).apply { playing = { tab.playing.value } }
         wv.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         wv.settings.apply {
             javaScriptEnabled = true

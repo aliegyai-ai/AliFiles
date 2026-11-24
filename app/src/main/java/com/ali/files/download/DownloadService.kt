@@ -24,12 +24,14 @@ import kotlinx.coroutines.launch
 /** Keeps the process alive while downloads run and shows their progress. */
 class DownloadService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val awake by lazy { com.ali.files.util.KeepAwake(this, "downloads") }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         goForeground(build(Downloader.items.value))
+        awake.on()
         scope.launch {
             Downloader.items.collect { list ->
                 if (list.none { it.active }) {
@@ -49,6 +51,7 @@ class DownloadService : Service() {
     }
 
     override fun onDestroy() {
+        awake.off()
         scope.cancel()
         super.onDestroy()
     }

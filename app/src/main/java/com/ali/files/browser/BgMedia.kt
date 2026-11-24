@@ -45,6 +45,11 @@ object BgMedia {
     window.addEventListener(t, function(e){ e.stopImmediatePropagation(); }, true);
     document.addEventListener(t, function(e){ e.stopImmediatePropagation(); }, true);
   });
+  // leaving the app / the small window takes the focus away: players pause on that too
+  ['blur', 'pagehide', 'freeze'].forEach(function(t){
+    window.addEventListener(t, function(e){ if (e.target === window || e.target === document) e.stopImmediatePropagation(); }, true);
+  });
+  try { Object.defineProperty(Document.prototype, 'hasFocus', { value: function(){ return true; }, configurable: true }); } catch (e) {}
   if (window.top !== window) return;
   function rep(v){ try { $BRIDGE.state(!v.paused && !v.ended, document.title || '', v.currentTime || 0, isFinite(v.duration) ? v.duration : 0); } catch (e) {} }
   document.addEventListener('play', function(e){ var t = e.target; if (t && (t.tagName === 'VIDEO' || t.tagName === 'AUDIO')) { window.__aliLast = t; rep(t); } }, true);
@@ -119,6 +124,20 @@ object BgMedia {
         if (!c.pipMode.value) return
         c.pipMode.value = false
         c.current?.webView?.evaluateJavascript("window.__aliPip && window.__aliPip(false)", null)
+    }
+}
+
+/**
+ * The browser's page view. When you leave the app Android tells it «you're not on screen», and the
+ * video engine inside then pauses any playing video by itself. While a video plays (and «keep
+ * playing» is on) it's told it's still on screen.
+ */
+class PageView(c: Context) : android.webkit.WebView(c) {
+    var playing: () -> Boolean = { false }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        val keep = visibility != android.view.View.VISIBLE && AppSettings.bgPlay.value && playing()
+        super.onWindowVisibilityChanged(if (keep) android.view.View.VISIBLE else visibility)
     }
 }
 

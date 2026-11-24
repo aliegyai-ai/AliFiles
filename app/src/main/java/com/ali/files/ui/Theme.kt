@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ali.files.R
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -125,12 +126,35 @@ fun androidx.compose.ui.Modifier.sheetBody(): androidx.compose.ui.Modifier =
         .then(androidx.compose.ui.Modifier.navigationBarsPadding())
 
 /**
- * A sheet that a stray tap or swipe can't close (it closes from its own buttons) — for sheets that
- * are working on something, like reading a video's qualities.
+ * A sheet that a stray tap or swipe can't close — only its own buttons, through [close], which slides
+ * it away properly before it's removed (removing a sheet that's still open left the page under it frozen).
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+class GuardedSheet internal constructor(
+    val state: androidx.compose.material3.SheetState,
+    private val allow: androidx.compose.runtime.MutableState<Boolean>,
+    private val scope: kotlinx.coroutines.CoroutineScope,
+) {
+    private var closing = false
+    fun close(then: () -> Unit) {
+        if (closing) return
+        closing = true
+        allow.value = true
+        scope.launch {
+            runCatching { state.hide() }
+            then()
+        }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @androidx.compose.runtime.Composable
-fun stickySheetState() = androidx.compose.material3.rememberModalBottomSheetState(
-    skipPartiallyExpanded = true,
-    confirmValueChange = { it != androidx.compose.material3.SheetValue.Hidden },
-)
+fun rememberGuardedSheet(): GuardedSheet {
+    val allow = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val state = androidx.compose.material3.rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { it != androidx.compose.material3.SheetValue.Hidden || allow.value },
+    )
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    return androidx.compose.runtime.remember(state) { GuardedSheet(state, allow, scope) }
+}
