@@ -42,6 +42,10 @@ data class FolderMeta(val color: Int = 0, val locked: Boolean = false)
 @Serializable
 data class TrashEntry(val id: String, val name: String, val from: String, val deletedAt: Long, val size: Long, val isDir: Boolean = false)
 
+/** A category the user made (e.g. «أناشيد»). */
+@Serializable
+data class CustomCat(val id: String, val name: String, val color: Int, val icon: Int = 0)
+
 enum class LibSort(val label: String) { DATE("الأحدث"), NAME("الاسم"), SIZE("الحجم"), TYPE("النوع") }
 
 @Serializable
@@ -72,6 +76,7 @@ object Library {
         app = c.applicationContext
         _meta.value = runCatching { json.decodeFromString<Map<String, FolderMeta>>(metaFile.readText()) }.getOrDefault(emptyMap())
         _pinned.value = prefs.getStringSet("pinned", emptySet())?.toSet() ?: emptySet()
+        runCatching { json.decodeFromString<CatStore>(catsFile.readText()) }.getOrNull()?.let { _cats.value = it.assigned; _custom.value = it.custom }
         sort.value = runCatching { LibSort.valueOf(prefs.getString("sort", "DATE")!!) }.getOrDefault(LibSort.DATE)
         // the trash keeps things 30 days
         val all = runCatching { json.decodeFromString<List<TrashEntry>>(trashIndex.readText()) }.getOrDefault(emptyList())
@@ -94,6 +99,36 @@ object Library {
     private val _trash = MutableStateFlow<List<TrashEntry>>(emptyList())
     val trash: StateFlow<List<TrashEntry>> = _trash
     val sort = androidx.compose.runtime.mutableStateOf(LibSort.DATE)
+
+    /** categories you chose by hand: file path → "VIDEO" / "AUDIO" / "NOMUSIC" / "LONG" / "IMAGE" / "OTHER" / "c:<id>" */
+    private val _cats = MutableStateFlow<Map<String, String>>(emptyMap())
+    val cats: StateFlow<Map<String, String>> = _cats
+    private val _custom = MutableStateFlow<List<CustomCat>>(emptyList())
+    val custom: StateFlow<List<CustomCat>> = _custom
+    private val catsFile get() = File(app.filesDir, "categories.json")
+
+    @Serializable
+    private data class CatStore(val assigned: Map<String, String> = emptyMap(), val custom: List<CustomCat> = emptyList())
+
+    private fun saveCats() = runCatching { catsFile.writeText(json.encodeToString(CatStore(_cats.value, _custom.value))) }
+
+    fun setCategory(files: List<LibFile>, cat: String?) {
+        _cats.value = _cats.value.toMutableMap().apply { files.forEach { if (cat == null) remove(it.path) else put(it.path, cat) } }
+        saveCats()
+    }
+
+    fun addCustom(name: String, color: Int, icon: Int): CustomCat {
+        val c = CustomCat(System.currentTimeMillis().toString(36), name.trim(), color, icon)
+        _custom.value = _custom.value + c; saveCats(); return c
+    }
+
+    fun editCustom(c: CustomCat) { _custom.value = _custom.value.map { if (it.id == c.id) c else it }; saveCats() }
+
+    fun deleteCustom(id: String) {
+        _custom.value = _custom.value.filterNot { it.id == id }
+        _cats.value = _cats.value.filterValues { it != "c:$id" }
+        saveCats()
+    }
 
     private val metaFile get() = File(app.filesDir, "folders.json")
     private val trashDir get() = File(app.filesDir, "trash").apply { mkdirs() }
@@ -233,6 +268,7 @@ object Library {
         setFavorites(_favorites.value.map(::m).toSet())
         savePlaylists(_playlists.value.map { pl -> pl.copy(paths = pl.paths.map(::m)) })
         savePinned(_pinned.value.map { if (it.startsWith("dir:")) it else m(it) }.toSet())
+        if (_cats.value.keys.any { it == from || it.startsWith("$from/") }) { _cats.value = _cats.value.mapKeys { (k, _) -> m(k) }; saveCats() }
     }
 
     // ------------------------------------------------------------ trash
@@ -405,9 +441,8 @@ object Library {
         val wanted = if (ext.isNotEmpty() && !newName.endsWith(".$ext")) "$newName.$ext" else newName
         val dest = uniqueFile(wanted, f.file.parentFile ?: dir)
         if (!f.file.renameTo(dest)) return null
-        // keep favorites / playlists pointing at the file
-        if (f.path in _favorites.value) setFavorites(_favorites.value - f.path + dest.absolutePath)
-        savePlaylists(_playlists.value.map { p -> p.copy(paths = p.paths.map { if (it == f.path) dest.absolutePath else it }) })
+        // keep favorites / playlists / pins / categories pointing at the file
+        remapPaths(f.path, dest.absolutePath)
         refresh()
         return dest
     }

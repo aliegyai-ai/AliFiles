@@ -2,6 +2,8 @@
 
 package com.ali.files.player
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import com.ali.files.ui.sheetBody
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -329,7 +331,7 @@ private fun ToolButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 private fun EqualizerSheet(onDismiss: () -> Unit) {
     val eq = remember { PlayerHub.equalizer() }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().sheetBody().padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("معادل الصوت", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 Switch(checked = PlayerHub.eqEnabled.value, onCheckedChange = { PlayerHub.setEqEnabled(it) })
@@ -396,7 +398,7 @@ private fun presetName(n: String): String = when (n.lowercase()) {
 private fun QueueSheet(onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Text("قايمة التشغيل (${PlayerHub.queue.value.size})", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(bottom = 20.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp).navigationBarsPadding().padding(bottom = 20.dp)) {
             itemsIndexed(PlayerHub.queue.value, key = { i, t -> "$i-${t.id}" }) { i, t ->
                 val current = i == PlayerHub.index.intValue
                 Row(
