@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
@@ -121,13 +122,21 @@ object Updater {
         )
     }
 
+    /** Through Android's package installer, so later updates can install on their own (see [AutoUpdate]). */
     fun install(c: Context, apk: File) {
-        val uri = FileProvider.getUriForFile(c, "${c.packageName}.files", apk)
-        c.startActivity(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+        val info = (_state.value as? UpdateState.Ready)?.info ?: UpdateInfo(0, "", "")
+        val app = c.applicationContext
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            runCatching { AutoUpdate.install(app, apk, info, background = false) }.onFailure {
+                // fall back to the classic installer screen
+                val uri = FileProvider.getUriForFile(app, "${app.packageName}.files", apk)
+                app.startActivity(
+                    Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(uri, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
     }
 
     fun reset() { _state.value = UpdateState.Idle }

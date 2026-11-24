@@ -80,9 +80,15 @@ class MainActivity : FragmentActivity() {
         handleIntent(intent)
     }
 
+    private var leftAt = 0L
+
     override fun onStart() {
         super.onStart()
         Vault.onAppStart()
+        // «وضع النسيان»: back after a while (or a fresh start) → sites forget your last visit
+        if (AppSettings.forgetMode.value && (leftAt == 0L || System.currentTimeMillis() - leftAt > 2 * 60_000L)) {
+            runCatching { com.ali.files.browser.ForgetSites.forgetAll(browser) }
+        }
     }
 
     override fun onStop() {
@@ -93,7 +99,7 @@ class MainActivity : FragmentActivity() {
         }
         com.ali.files.player.PlayerHub.savePosition()
         browser.saveSession()
-        if (!isChangingConfigurations) Vault.onAppStop()
+        if (!isChangingConfigurations) { Vault.onAppStop(); leftAt = System.currentTimeMillis() }
     }
 
     /** Small floating video window while using other apps. */

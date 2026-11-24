@@ -85,6 +85,23 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         )
         HorizontalDivider()
 
+        Text("التحديثات", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        listOf(
+            "auto" to "تلقائي بالكامل (زي جوجل بلاي)",
+            "download" to "نزّله لوحده واسألني قبل التثبيت",
+            "ask" to "اسألني الأول",
+        ).forEach { (key, label) ->
+            Row(Modifier.fillMaxWidth().clickable { AppSettings.setUpdateMode(key) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = AppSettings.updateMode.value == key, onClick = { AppSettings.setUpdateMode(key) })
+                Text(label)
+            }
+        }
+        val ctxU = LocalContext.current
+        SwitchRow("نزّل التحديثات على الواي فاي بس", "عشان الباقة", AppSettings.updateWifiOnly.value) {
+            AppSettings.setUpdateWifiOnly(it); com.ali.files.update.AutoUpdate.schedule(ctxU)
+        }
+
+        HorizontalDivider()
         Section("التحميل")
         Text("عدد الخيوط الافتراضي: ${AppSettings.threads.intValue}", Modifier.padding(horizontal = 16.dp))
         Slider(
@@ -112,6 +129,15 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
 
         HorizontalDivider()
         Section("المتصفح")
+        SwitchRow(
+            "وضع النسيان",
+            "المواقع تنسى اللي شفته ودوّرت عليه كل ما ترجع للتطبيق. المواقع اللي عاوزها تفضل فاكراك: من قايمة المتصفح ← «خلّيه فاكرني»",
+            AppSettings.forgetMode.value,
+        ) { AppSettings.setForgetMode(it) }
+        if (AppSettings.forgetMode.value && AppSettings.keepSites.value.isNotEmpty()) {
+            Text("فاكرينك: " + AppSettings.keepSites.value.sorted().joinToString("، "), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
+            TextButton(onClick = { AppSettings.setKeepSites(emptySet()) }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("انسى القايمة دي") }
+        }
         SwitchRow("مانع الإعلانات والنوافذ المنبثقة", "بيقفل شبكات الإعلانات والتتبع", AppSettings.adBlock.value) { AppSettings.setAdBlock(it) }
         SwitchRow("وضع ليلي للمواقع", "يخلي المواقع داكنة لما الموبايل يكون على الوضع الداكن", AppSettings.darkSites.value) { AppSettings.setDarkSites(it); browser.applyDarkSites() }
         SwitchRow("أزرار ⬇ جوه الصفحات", "زرار تحميل صغير فوق كل فيديو جوه الصفحة", AppSettings.inPageButtons.value) { AppSettings.setInPageButtons(it) }

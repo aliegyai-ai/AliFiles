@@ -28,6 +28,7 @@ class App : Application() {
         com.ali.files.browser.AdStats.init(this)
         com.ali.files.browser.AdFilter.init(this)
         com.ali.files.torrent.TorrentEngine.init(this)
+        runCatching { com.ali.files.update.AutoUpdate.schedule(this) }
     }
 }
 

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.unit.sp
 import androidx.compose.animation.animateContentSize
@@ -147,6 +149,21 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
             }
             }
         }
+    }
+
+    // ---------------------------------------------- «شوف الجديد» after an update
+    var whatsNew by remember { mutableStateOf(com.ali.files.update.AutoUpdate.whatsNew(ctx)) }
+    whatsNew?.let { (name, notes) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { com.ali.files.update.AutoUpdate.markSeen(ctx); whatsNew = null },
+            title = { Text("الجديد في $name ✨") },
+            text = {
+                androidx.compose.foundation.layout.Column(Modifier.heightIn(max = 420.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                    Text(notes, lineHeight = 22.sp)
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { com.ali.files.update.AutoUpdate.markSeen(ctx); whatsNew = null }) { Text("تمام") } },
+        )
     }
 
     // ---------------------------------------------- torrents: pick the files

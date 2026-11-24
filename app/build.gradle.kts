@@ -6,7 +6,7 @@ plugins {
 }
 
 // bump this for a big release; the build number from GitHub is added after it
-val appVersion = "2.2"
+val appVersion = "2.3"
 
 android {
     namespace = "com.ali.files"
@@ -102,6 +102,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-cast-framework:22.0.0")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-39")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.2")

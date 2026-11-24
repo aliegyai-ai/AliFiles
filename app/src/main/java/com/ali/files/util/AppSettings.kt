@@ -25,6 +25,12 @@ object AppSettings {
     @Volatile var inPageButtonsFast = false
     /** make websites dark when the phone is in dark mode */
     val darkSites = mutableStateOf(true)
+    /** updates: "auto" (download + install by itself), "download" (download, ask before installing), "ask" */
+    val updateMode = mutableStateOf("auto")
+    val updateWifiOnly = mutableStateOf(true)
+    /** «وضع النسيان»: sites forget your visits (except [keepSites]) when you come back to the app */
+    val forgetMode = mutableStateOf(false)
+    val keepSites = mutableStateOf<Set<String>>(emptySet())
     /** library: put new downloads in a folder by "type", by "source" site, or "none" */
     val autoFolder = mutableStateOf("none")
     /** also copy finished downloads to the phone's gallery */
@@ -54,6 +60,10 @@ object AppSettings {
         privateLock.value = sp.getBoolean("privateLock", false)
         inPageButtons.value = sp.getBoolean("inPageButtons", false); inPageButtonsFast = inPageButtons.value
         darkSites.value = sp.getBoolean("darkSites", true)
+        updateMode.value = sp.getString("updateMode", "auto") ?: "auto"
+        updateWifiOnly.value = sp.getBoolean("updateWifiOnly", true)
+        forgetMode.value = sp.getBoolean("forgetMode", false)
+        keepSites.value = sp.getStringSet("keepSites", emptySet())?.toSet() ?: emptySet()
         autoFolder.value = sp.getString("autoFolder", "none") ?: "none"
         autoGallery.value = sp.getBoolean("autoGallery", false)
         torrentWifiOnly.value = sp.getBoolean("torrentWifiOnly", false)
@@ -76,6 +86,10 @@ object AppSettings {
     fun setTorrentLimitKb(v: Int) { torrentLimitKb.value = v; sp.edit().putInt("torrentLimitKb", v).apply() }
     fun setAutoFolder(v: String) { autoFolder.value = v; sp.edit().putString("autoFolder", v).apply() }
     fun setAutoGallery(v: Boolean) { autoGallery.value = v; sp.edit().putBoolean("autoGallery", v).apply() }
+    fun setUpdateMode(v: String) { updateMode.value = v; sp.edit().putString("updateMode", v).apply() }
+    fun setUpdateWifiOnly(v: Boolean) { updateWifiOnly.value = v; sp.edit().putBoolean("updateWifiOnly", v).apply() }
+    fun setForgetMode(v: Boolean) { forgetMode.value = v; sp.edit().putBoolean("forgetMode", v).apply() }
+    fun setKeepSites(v: Set<String>) { keepSites.value = v; sp.edit().putStringSet("keepSites", v).apply() }
     fun setDarkSites(v: Boolean) { darkSites.value = v; sp.edit().putBoolean("darkSites", v).apply() }
     fun setPrivateLock(v: Boolean) { privateLock.value = v; sp.edit().putBoolean("privateLock", v).apply() }
     fun setFloatingDownload(v: Boolean) { floatingDownload.value = v; sp.edit().putBoolean("floatingDownload", v).apply() }
