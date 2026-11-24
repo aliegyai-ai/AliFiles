@@ -26,7 +26,6 @@ import com.ali.files.ui.AppTheme
 import com.ali.files.ui.UiState
 import com.ali.files.util.AppSettings
 import com.ali.files.util.Notifications
-import com.ali.files.vault.Vault
 
 class MainActivity : FragmentActivity() {
     lateinit var browser: BrowserController
@@ -49,12 +48,9 @@ class MainActivity : FragmentActivity() {
             onDownloadRequest = { ui.pendingDownload.value = it }
             onVideoRequest = { ui.videoRequest.value = it }
             onLongPress = { ui.longPress.value = it }
-            launchFileChooser = { intent -> Vault.allowLeave = true; fileChooser.launch(intent) }
-            requestAndroidPermissions = { perms, done -> Vault.allowLeave = true; permissionDone = done; sitePermissions.launch(perms) }
+            launchFileChooser = { intent -> fileChooser.launch(intent) }
+            requestAndroidPermissions = { perms, done -> permissionDone = done; sitePermissions.launch(perms) }
         }
-
-        // torrents left running continue in the background
-        if (com.ali.files.torrent.TorrentEngine.active) com.ali.files.torrent.TorrentService.ensureRunning(this)
 
         // keep the throw-away caches small
         Thread {
@@ -84,7 +80,6 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
-        Vault.onAppStart()
         // «وضع النسيان»: back after a while (or a fresh start) → sites forget your last visit
         if (AppSettings.forgetMode.value && (leftAt == 0L || System.currentTimeMillis() - leftAt > 2 * 60_000L)) {
             runCatching { com.ali.files.browser.ForgetSites.forgetAll(browser) }
@@ -100,7 +95,7 @@ class MainActivity : FragmentActivity() {
         com.ali.files.player.PlayerHub.savePosition()
         browser.saveSession()
         if (!isChangingConfigurations) {
-            Vault.onAppStop(); leftAt = System.currentTimeMillis()
+            leftAt = System.currentTimeMillis()
             com.ali.files.update.AutoUpdate.installOnLeave(applicationContext)
         }
     }
@@ -176,12 +171,6 @@ class MainActivity : FragmentActivity() {
             Intent.ACTION_VIEW -> {
                 val data = intent.dataString ?: return
                 val type = intent.type ?: intent.data?.let { runCatching { contentResolver.getType(it) }.getOrNull() } ?: ""
-                // torrents from other apps
-                if (data.startsWith("magnet:", true)) { com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Magnet(data)); return }
-                if (type == "application/x-bittorrent" || (!data.startsWith("http") && data.substringBefore('?').endsWith(".torrent", true))) {
-                    intent.data?.let { com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Content(it)) }
-                    return
-                }
                 if (!data.startsWith("http") && (type.startsWith("video/") || type.startsWith("audio/"))) {
                     // «Open with حمّل» from another app → play it here
                     val u = intent.data ?: return
@@ -201,9 +190,7 @@ class MainActivity : FragmentActivity() {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT)
                 if (stream != null) {
                     ui.sharedUris.value = listOf(stream)
-                    ui.tab.intValue = UiState.TAB_VAULT
-                } else if (text != null && Regex("magnet:\\?\\S+", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
-                    com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Magnet(Regex("magnet:\\?\\S+", RegexOption.IGNORE_CASE).find(text)!!.value))
+                    ui.tab.intValue = UiState.TAB_DOWNLOADS
                 } else if (text != null) {
                     val url = findUrl(text) ?: return
                     AppSettings.lastClip = url
@@ -223,7 +210,7 @@ class MainActivity : FragmentActivity() {
                 val list = IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
                 if (!list.isNullOrEmpty()) {
                     ui.sharedUris.value = list.toList()
-                    ui.tab.intValue = UiState.TAB_VAULT
+                    ui.tab.intValue = UiState.TAB_DOWNLOADS
                 }
             }
         }

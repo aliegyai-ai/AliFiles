@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.foundation.lazy.LazyColumn
@@ -175,56 +176,11 @@ private fun clipboardLink(ctx: Context): String? = runCatching {
 
 private fun hostOf(url: String) = url.substringAfter("://").substringBefore('/').removePrefix("www.").removePrefix("m.")
 
-private val PrivatePurple = Color(0xFFB896E6)
-
-/** Opens the private space — after the fingerprint, if the user turned that lock on. */
-fun requestPrivate(ctx: Context, c: BrowserController) {
-    val act = ctx as? androidx.fragment.app.FragmentActivity
-    if (AppSettings.privateLock.value && act != null && com.ali.files.vault.biometricAvailable(ctx)) {
-        com.ali.files.vault.showBiometric(act, title = "فتح التصفح الخفي", negative = "إلغاء") { c.enterPrivate() }
-    } else c.enterPrivate()
-}
-
 @Composable
 fun BrowserScreen(c: BrowserController, ui: UiState) {
     val ctx = LocalContext.current
-    val private = c.privateMode.value
-
-    // no screenshots / recent-apps preview while private tabs are on screen
-    androidx.compose.runtime.DisposableEffect(private) {
-        val w = (ctx as? android.app.Activity)?.window
-        if (private) w?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { if (private) w?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
-    }
-    // with the fingerprint lock on, leaving the app hides the private space again
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-        val hasPrivate = c.tabs.any { it.incognito }
-        c.leftAt = System.currentTimeMillis()
-        if (c.awayOnPurpose) { c.leftAt = 0; return@LifecycleEventEffect }
-        // «wipe as soon as I leave the app»
-        if (hasPrivate && AppSettings.privateAutoWipe.value == 0) c.closePrivate()
-        else if (c.privateMode.value && AppSettings.privateLock.value) c.exitPrivate()
-    }
-    // «wipe after N minutes away»
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
-        c.awayOnPurpose = false
-        val m = AppSettings.privateAutoWipe.value
-        if (m > 0 && c.leftAt > 0 && c.tabs.any { it.incognito } && System.currentTimeMillis() - c.leftAt > m * 60_000L) c.closePrivate()
-    }
-
-    val base = MaterialTheme.colorScheme
-    val scheme = if (!private) base else base.copy(
-        primary = PrivatePurple,
-        onPrimary = Color(0xFF1E1230),
-        background = Color(0xFF0F0B14),
-        surface = Color(0xFF0F0B14),
-        surfaceContainerLow = Color(0xFF17121E),
-        surfaceContainer = Color(0xFF1C1624),
-        surfaceContainerHigh = Color(0xFF241D2E),
-        surfaceContainerHighest = Color(0xFF2C2438),
-        outlineVariant = Color(0xFF3A2F48),
-    )
-    MaterialTheme(colorScheme = scheme) { BrowserContent(c, ui) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { c.awayOnPurpose = false }
+    BrowserContent(c, ui)
 }
 
 @Composable
@@ -329,8 +285,8 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
         AnimatedVisibility(visible = barsVisible, enter = expandVertically(), exit = shrinkVertically()) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
-                color = if (c.privateMode.value) Color(0xFF1F1A28) else Color(0xFF1E1A13),
-                border = BorderStroke(1.dp, if (c.privateMode.value) Color(0xFF3E3450) else Color(0xFF3A3123)),
+                color = Color(0xFF1E1A13),
+                border = BorderStroke(1.dp, Color(0xFF3A3123)),
                 shadowElevation = 14.dp,
                 modifier = Modifier.navigationBarsPadding().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp),
             ) {
@@ -381,17 +337,12 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                         }
                     }
 
-                    // panic: close every private tab and wipe it all, one tap
-                    if (c.privateMode.value) BarButton(onClick = { c.closePrivate() }) {
-                        Text("🔥", fontSize = 19.sp)
-                    }
-
                     BarButton(onClick = { tab?.let { c.captureThumb(it) }; showTabs = true }) {
                         Box(
                             Modifier.size(22.dp).border(1.6.dp, MaterialTheme.colorScheme.onSurfaceVariant, RoundedCornerShape(6.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            val n = c.visibleTabs.size
+                            val n = c.tabs.size
                             Text(if (n > 99) "∞" else "$n", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -439,12 +390,11 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
             },
             confirmButton = {
                 Column(horizontalAlignment = Alignment.End) {
-                    TextButton(onClick = { ui.longPress.value = null; c.newTab(lp.url, lp.incognito) }) { Text("افتح في تبويب جديد") }
+                    TextButton(onClick = { ui.longPress.value = null; c.newTab(lp.url) }) { Text("افتح في تبويب جديد") }
                     TextButton(onClick = { ui.longPress.value = null; c.requestDownload(lp.url, c.current) }) { Text(if (lp.isImage) "حمّل الصورة" else "حمّل الرابط") }
                     if (!lp.isImage && VideoExtractor.isSingleVideoPage(lp.url)) {
                         TextButton(onClick = { ui.longPress.value = null; ui.videoRequest.value = VideoRequest(lp.url) }) { Text("حمّل الفيديو اللي في اللينك ده") }
                     }
-                    if (!lp.incognito) TextButton(onClick = { ui.longPress.value = null; c.openPrivate(lp.url) }) { Text("افتح في تبويب خفي") }
                     TextButton(onClick = {
                         ui.longPress.value = null
                         c.awayOnPurpose = true; ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, lp.url), "مشاركة"))
@@ -573,13 +523,7 @@ private fun MenuSheet(
             }
 
             val items = buildList {
-                add(MenuItem("تبويب جديد", Icons.Filled.Add) { act { c.newTab(incognito = c.privateMode.value) } })
-                if (!c.privateMode.value) {
-                    add(MenuItem("التصفح الخفي", Icons.Filled.VisibilityOff, accent = PrivatePurple) { act { requestPrivate(ctx, c) } })
-                } else {
-                    add(MenuItem("رجوع للعادي", Icons.Filled.Public) { act { c.exitPrivate() } })
-                    add(MenuItem("امسح واقفل", Icons.Filled.DeleteSweep, accent = Color(0xFFE0715A)) { act { c.closePrivate() } })
-                }
+                add(MenuItem("تبويب جديد", Icons.Filled.Add) { act { c.newTab() } })
                 add(MenuItem("المفضلة والسجل", Icons.Filled.History) { act(onLibrary) })
                 add(MenuItem("الرئيسية", Icons.Filled.Home) { act { c.goHome() } })
                 add(MenuItem("الإعلانات", Icons.Filled.Shield, selected = AppSettings.adBlock.value && (page?.pageHost?.let { !SiteAllow.isAllowed(it) } ?: true)) { act(onAds) })
@@ -594,10 +538,10 @@ private fun MenuSheet(
                         })
                     }
                     page.pageHost?.let { host ->
-                        if (!page.incognito) add(MenuItem("انسى الموقع ده", Icons.Filled.DeleteSweep) {
+                        add(MenuItem("انسى الموقع ده", Icons.Filled.DeleteSweep) {
                             act { ForgetSites.forget(host); page.webView?.reload(); Toast.makeText(ctx, "${ForgetSites.siteOf(host)} نسي زيارتك", Toast.LENGTH_SHORT).show() }
                         })
-                        if (AppSettings.forgetMode.value && !page.incognito) {
+                        if (AppSettings.forgetMode.value) {
                             val kept = ForgetSites.isKept(host)
                             add(MenuItem(if (kept) "مش لازم يفتكرني" else "خلّيه فاكرني", Icons.Filled.Favorite, selected = kept) {
                                 act {
@@ -609,7 +553,6 @@ private fun MenuSheet(
                     }
                 }
                 add(MenuItem("المكتبة", Icons.Filled.VideoLibrary) { act { onOpenApp(UiState.TAB_DOWNLOADS) } })
-                add(MenuItem("الخزنة", Icons.Filled.Lock) { act { onOpenApp(UiState.TAB_VAULT) } })
                 add(MenuItem("الإعدادات", Icons.Filled.Settings) { act { onOpenApp(UiState.TAB_SETTINGS) } })
             }
             items.chunked(4).forEach { row ->
@@ -700,10 +643,8 @@ private fun StartPage(c: BrowserController, ui: UiState) {
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
     ) {
         Spacer(Modifier.height(22.dp))
-        if (c.privateMode.value) {
-            PrivateDashboard(c)
-        } else {
-            // the app's mark, a greeting, and the private space one tap away
+        run {
+            // the app's mark and a greeting
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFF221C12)), contentAlignment = Alignment.Center) {
                     Icon(androidx.compose.ui.res.painterResource(com.ali.files.R.drawable.ic_launcher_fg), null, tint = Color.Unspecified, modifier = Modifier.size(52.dp))
@@ -713,11 +654,6 @@ private fun StartPage(c: BrowserController, ui: UiState) {
                     Text(greeting.substringBefore(" يا"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                     Text(if (userName.isNotBlank()) "يا $userName" else "أهلاً بيك", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 21.sp))
                 }
-                Box(
-                    Modifier.size(44.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFF231E2C))
-                        .border(1.dp, Color(0xFF4A3F5E), RoundedCornerShape(15.dp)).clickable { requestPrivate(ctx, c) },
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Filled.VisibilityOff, "التصفح الخفي", tint = Color(0xFFB896E6), modifier = Modifier.size(21.dp)) }
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -781,11 +717,9 @@ private fun StartPage(c: BrowserController, ui: UiState) {
         }
 
         // your library, one tap away
-        if (!c.privateMode.value) {
-            Spacer(Modifier.height(18.dp))
-            HomeLibraryTiles(ui, downloads)
-            ContinueRow(ui)
-        }
+        Spacer(Modifier.height(18.dp))
+        HomeLibraryTiles(ui, downloads)
+        ContinueRow(ui)
 
         // sites: the big ones + your own (long-press to remove)
         Spacer(Modifier.height(22.dp))
@@ -836,11 +770,11 @@ private fun SiteTile(name: String, letter: String, color: Color, dashed: Boolean
     }
 }
 
-/** Start page: four big tiles into the library (videos, songs, downloading now, the vault). */
+/** Start page: four big tiles into the library (videos, songs, downloading now, playlists). */
 @Composable
 private fun HomeLibraryTiles(ui: UiState, downloads: List<com.ali.files.download.DownloadItem>) {
     val files by com.ali.files.library.Library.files.collectAsState()
-    val vault by com.ali.files.vault.Vault.entries.collectAsState()
+    val lists by com.ali.files.library.Library.playlists.collectAsState()
     val videos = files.filter { it.kind == com.ali.files.util.FileKind.VIDEO }
     val songs = files.filter { it.kind == com.ali.files.util.FileKind.AUDIO }
     val active = downloads.filter { it.active }
@@ -857,9 +791,7 @@ private fun HomeLibraryTiles(ui: UiState, downloads: List<com.ali.files.download
                 if (active.isEmpty()) "مفيش حاجة شغالة" else "${formatBytes(speed)}/ث",
                 Icons.Filled.Download, Color(0xFF7FB685), Modifier.weight(1f),
             ) { com.ali.files.library.LibraryTabState.page.intValue = 1; ui.tab.intValue = UiState.TAB_DOWNLOADS }
-            HomeTile("الخزنة", if (com.ali.files.vault.Vault.unlocked.value) "${vault.size}" else "", "مقفولة بالبصمة", Icons.Filled.Lock, Color(0xFFB896E6), Modifier.weight(1f)) {
-                ui.tab.intValue = UiState.TAB_VAULT
-            }
+            HomeTile("قوايم التشغيل", "${lists.size}", "تشغيل بالترتيب", Icons.AutoMirrored.Filled.QueueMusic, Color(0xFFBA68C8), Modifier.weight(1f)) { lib(6) }
         }
     }
 }
@@ -967,7 +899,6 @@ private fun AddressField(c: BrowserController, tab: BrowserTab?, modifier: Modif
     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = modifier.height(42.dp)) {
         Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             when {
-                tab?.incognito == true -> Icon(Icons.Filled.VisibilityOff, "خاص", Modifier.size(17.dp))
                 home -> Icon(Icons.Filled.Search, null, Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 (tab?.blocked?.intValue ?: 0) > 0 -> BadgedBox(badge = { Badge { Text("${tab?.blocked?.intValue}", fontSize = 9.sp) } }) {
                     Icon(Icons.Filled.Shield, "مانع الإعلانات", Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
@@ -1038,32 +969,14 @@ private fun FindBar(result: Pair<Int, Int>, query: String, onQuery: (String) -> 
 @Composable
 private fun TabsSheet(c: BrowserController, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
-    val private = c.privateMode.value
-    val normalCount = c.tabs.count { !it.incognito }
-    val privateCount = c.tabs.count { it.incognito }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        // normal | private switch
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest).padding(4.dp),
-        ) {
-            SpaceTab("عادي ($normalCount)", Icons.Filled.Public, selected = !private, color = Color(0xFFD4A94F), modifier = Modifier.weight(1f)) { c.exitPrivate() }
-            SpaceTab("خفي ($privateCount)", Icons.Filled.VisibilityOff, selected = private, color = PrivatePurple, modifier = Modifier.weight(1f)) { requestPrivate(ctx, c) }
-        }
-        if (private) {
-            Text(
-                "التبويبات دي مش بتسيب سجل ولا كوكيز ولا كاش، وكل حاجة بتتمسح لما تدوس «امسح واقفل».",
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
-            )
-        }
+        Text("التبويبات (${c.tabs.size})", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 18.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { c.newTab(incognito = private); onDismiss() }, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.Add, null); Spacer(Modifier.width(4.dp)); Text(if (private) "تبويب خفي" else "تبويب جديد")
+            OutlinedButton(onClick = { c.newTab(); onDismiss() }, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.Add, null); Spacer(Modifier.width(4.dp)); Text("تبويب جديد")
             }
             OutlinedButton(onClick = { c.closeAll(); onDismiss() }, modifier = Modifier.weight(1f)) {
-                Icon(if (private) Icons.Filled.DeleteSweep else Icons.Filled.Close, null); Spacer(Modifier.width(4.dp))
-                Text(if (private) "امسح واقفل" else "اقفل الكل")
+                Icon(Icons.Filled.Close, null); Spacer(Modifier.width(4.dp)); Text("اقفل الكل")
             }
         }
         LazyVerticalGrid(
@@ -1073,24 +986,11 @@ private fun TabsSheet(c: BrowserController, onDismiss: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(c.visibleTabs, key = { it.id }) { t -> TabCard(t, selected = t.id == c.currentId.longValue, onOpen = { c.select(t.id); onDismiss() }, onClose = { c.closeTab(t.id) }) }
+            items(c.tabs, key = { it.id }) { t -> TabCard(t, selected = t.id == c.currentId.longValue, onOpen = { c.select(t.id); onDismiss() }, onClose = { c.closeTab(t.id) }) }
         }
     }
 }
 
-@Composable
-private fun SpaceTab(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, color: Color, modifier: Modifier, onClick: () -> Unit) {
-    Row(
-        modifier.height(40.dp).clip(RoundedCornerShape(11.dp))
-            .background(if (selected) color.copy(alpha = 0.22f) else Color.Transparent)
-            .clickable(onClick = onClick),
-        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, Modifier.size(18.dp), tint = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(6.dp))
-        Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
 
 @Composable
 private fun TabCard(t: BrowserTab, selected: Boolean, onOpen: () -> Unit, onClose: () -> Unit) {
@@ -1103,7 +1003,6 @@ private fun TabCard(t: BrowserTab, selected: Boolean, onOpen: () -> Unit, onClos
     ) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (t.incognito) { Icon(Icons.Filled.VisibilityOff, null, Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)) }
                 Text(
                     if (t.home.value) "الصفحة الرئيسية" else t.title.value.ifBlank { hostOf(t.url.value).ifBlank { "صفحة جديدة" } },
                     fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
@@ -1210,105 +1109,3 @@ private fun LibrarySheet(c: BrowserController, onDismiss: () -> Unit) {
 }
 
 
-/** Start page of the private space: what's protecting you right now. */
-@Composable
-private fun PrivateDashboard(c: BrowserController) {
-    val ctx = LocalContext.current
-    val purple = MaterialTheme.colorScheme.primary
-    val tor = TorManager.state.value
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(purple.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.VisibilityOff, null, tint = purple)
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text("التصفح الخفي", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(if (tor == TorManager.State.ON) "خفي + Tor" else "مفيش سجل ولا كوكيز بيتحفظ", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-    Spacer(Modifier.height(14.dp))
-
-    // counter
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("${c.privateBlocked.intValue}", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = purple)
-                Text("إعلان ومتتبّع اتمنعوا في الجلسة دي", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(Icons.Filled.Shield, null, tint = purple, modifier = Modifier.size(34.dp))
-        }
-    }
-    Spacer(Modifier.height(10.dp))
-
-    // Tor
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = if (tor == TorManager.State.ON) purple.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("🧅", fontSize = 22.sp)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Tor — إخفاء عنوانك", fontWeight = FontWeight.Bold)
-                    Text(
-                        when (tor) {
-                            TorManager.State.ON -> "شغّال: المواقع وشركة النت مش شايفين انت مين"
-                            TorManager.State.STARTING -> TorManager.message.value
-                            TorManager.State.ERROR -> TorManager.message.value
-                            TorManager.State.OFF -> "المواقع شايفة عنوانك العادي"
-                        },
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (tor == TorManager.State.STARTING) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = purple)
-                else Switch(
-                    checked = tor == TorManager.State.ON,
-                    onCheckedChange = { if (it) TorManager.start(ctx) else TorManager.stop() },
-                    colors = SwitchDefaults.colors(checkedTrackColor = purple),
-                )
-            }
-            if (tor == TorManager.State.ON || tor == TorManager.State.STARTING) {
-                Spacer(Modifier.height(6.dp))
-                Text("وهو شغال، كل التطبيق بيعدّي من خلاله (التبويبات العادية والتحميل كمان) وهيبقى أبطأ شوية. بيقفل لوحده لما تمسح الخفي.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-    Spacer(Modifier.height(10.dp))
-
-    // what's on
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            PrivLine(c.privateIsolated, if (c.privateIsolated) "كوكيز ومساحة منفصلة تماماً عن العادي" else "الكوكيز مش منفصلة — حدّث «Android System WebView»")
-            PrivLine(true, "منع كوكيز الطرف التالت والمتتبّعين")
-            PrivLine(true, "حماية البصمة (المواقع مش هتعرف موبايلك)")
-            PrivLine(true, "الاتصال المشفّر HTTPS دايماً")
-            PrivLine(true, "بحث خاص: " + when (AppSettings.privateSearch.value) { "brave" -> "Brave Search"; "same" -> "زي العادي"; else -> "DuckDuckGo" })
-            PrivLine(true, "التحميلات بتروح الخزنة")
-            PrivLine(true, "مفيش لقطات شاشة ولا معاينة في التطبيقات الأخيرة")
-            val w = AppSettings.privateAutoWipe.value
-            PrivLine(w >= 0, when { w == 0 -> "بيتمسح أول ما تخرج من التطبيق"; w > 0 -> "بيتمسح لوحده بعد $w دقيقة برّه التطبيق"; else -> "المسح التلقائي مقفول (من الإعدادات)" })
-        }
-    }
-    if (!c.privateIsolated) {
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = {
-            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.webview"))) }
-        }) { Text("حدّث Android System WebView") }
-    }
-    Spacer(Modifier.height(10.dp))
-    Button(
-        onClick = { c.closePrivate() },
-        colors = ButtonDefaults.buttonColors(containerColor = purple),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().height(48.dp),
-    ) { Text("🔥  امسح كل حاجة واقفل الخفي", fontWeight = FontWeight.Bold) }
-}
-
-@Composable
-private fun PrivLine(ok: Boolean, t: String) = Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-    Icon(if (ok) Icons.Filled.CheckCircle else Icons.Filled.Close, null, Modifier.size(17.dp), tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-    Spacer(Modifier.width(10.dp))
-    Text(t, fontSize = 13.sp)
-}

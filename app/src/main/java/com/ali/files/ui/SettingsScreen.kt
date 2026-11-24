@@ -42,9 +42,6 @@ import androidx.compose.ui.unit.sp
 import com.ali.files.BuildConfigInfo
 import com.ali.files.browser.BrowserController
 import com.ali.files.util.AppSettings
-import com.ali.files.vault.Vault
-import com.ali.files.vault.VaultLock
-import com.ali.files.vault.biometricAvailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,7 +67,6 @@ private fun SwitchRow(title: String, sub: String?, checked: Boolean, onChange: (
 @Composable
 fun SettingsScreen(browser: BrowserController, ui: UiState) {
     val ctx = LocalContext.current
-    var changePin by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -93,7 +89,7 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
             supportingContent = { Text("ابعت لينك التحميل لحد يجربه") },
             leadingContent = { Icon(Icons.Filled.Share, null, tint = MaterialTheme.colorScheme.primary) },
             modifier = Modifier.clickable {
-                val text = "جرّب تطبيق «ملفات علي»: متصفح بيحمّل أي فيديو، ومكتبة ومشغل وخزنة.\n" +
+                val text = "جرّب تطبيق «ملفات علي»: متصفح بيحمّل أي فيديو، ومكتبة ومشغل.\n" +
                     "حمّله من هنا:\nhttps://github.com/aliegyai-ai/AliFiles/releases/download/latest/AliFiles.apk\n\n" +
                     "لو الموبايل قال «مش مسموح»: الإعدادات ← السماح من المصدر ده ← تثبيت."
                 shareCtx.startActivity(
@@ -145,7 +141,6 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
             valueRange = 1f..16f, steps = 14,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
-        SwitchRow("احفظ التحميلات في الخزنة تلقائياً", "تقدر تغيّرها لكل تحميل", AppSettings.saveToVault.value) { AppSettings.setSaveToVault(it) }
 
         var updating by remember { mutableStateOf(false) }
         val scope2 = rememberCoroutineScope()
@@ -179,28 +174,11 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         SwitchRow("وضع ليلي للمواقع", "يخلي المواقع داكنة لما الموبايل يكون على الوضع الداكن", AppSettings.darkSites.value) { AppSettings.setDarkSites(it); browser.applyDarkSites() }
         SwitchRow("أزرار ⬇ جوه الصفحات", "زرار تحميل صغير فوق كل فيديو جوه الصفحة", AppSettings.inPageButtons.value) { AppSettings.setInPageButtons(it) }
         SwitchRow("زرار التحميل العايم فوق الصفحة", "مقفول: استخدم أيقونة التحميل في الشريط اللي تحت", AppSettings.floatingDownload.value) { AppSettings.setFloatingDownload(it) }
-        if (biometricAvailable(ctx)) {
-            SwitchRow("قفل التصفح الخفي بالبصمة", "يطلب البصمة كل ما تفتح التصفح الخفي", AppSettings.privateLock.value) { AppSettings.setPrivateLock(it) }
-        }
         SwitchRow("التقاط الروابط من الحافظة", "لما تنسخ لينك يعرض عليك تحمّله", AppSettings.clipboardDetect.value) { AppSettings.setClipboardDetect(it) }
         Text("محرك البحث", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         listOf("google" to "Google", "ddg" to "DuckDuckGo", "bing" to "Bing").forEach { (key, label) ->
             Row(Modifier.fillMaxWidth().clickable { AppSettings.setSearchEngine(key) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = AppSettings.searchEngine.value == key, onClick = { AppSettings.setSearchEngine(key) })
-                Text(label)
-            }
-        }
-        Text("بحث التصفح الخفي", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        listOf("ddg" to "DuckDuckGo (مش بيتتبعك)", "brave" to "Brave Search", "same" to "زي البحث العادي").forEach { (key, label) ->
-            Row(Modifier.fillMaxWidth().clickable { AppSettings.setPrivateSearch(key) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = AppSettings.privateSearch.value == key, onClick = { AppSettings.setPrivateSearch(key) })
-                Text(label)
-            }
-        }
-        Text("امسح التصفح الخفي لوحده", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        listOf(-1 to "لأ، أنا بمسحه بإيدي", 0 to "أول ما أخرج من التطبيق", 5 to "بعد 5 دقايق برّه التطبيق", 30 to "بعد نص ساعة برّه التطبيق").forEach { (key, label) ->
-            Row(Modifier.fillMaxWidth().clickable { AppSettings.setPrivateAutoWipe(key) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = AppSettings.privateAutoWipe.value == key, onClick = { AppSettings.setPrivateAutoWipe(key) })
                 Text(label)
             }
         }
@@ -222,41 +200,12 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         SwitchRow("احفظ نسخة في الاستديو", "كل فيديو أو صورة أو أغنية تتحمّل تتحفظ كمان في الاستديو/الموسيقى", AppSettings.autoGallery.value) { AppSettings.setAutoGallery(it) }
 
         HorizontalDivider()
-        Section("التورنت")
-        SwitchRow("حمّل على الواي فاي بس", "يوقف التورنت لما تكون على باقة الموبايل", AppSettings.torrentWifiOnly.value) { AppSettings.setTorrentWifiOnly(it) }
-        SwitchRow("شارك بعد ما يخلص", "يرفع لغيرك لحد ما ترفع قد اللي نزّلته أو ساعة — مقفول يعني يوقف على طول ويوفّر النت", AppSettings.torrentSeed.value) {
-            AppSettings.setTorrentSeed(it); com.ali.files.torrent.TorrentEngine.applyLimits()
-        }
-        Text("أقصى سرعة تحميل", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        listOf(0 to "من غير حد", 512 to "512 كيلو/ث", 1024 to "1 ميجا/ث", 3072 to "3 ميجا/ث").forEach { (key, label) ->
-            Row(Modifier.fillMaxWidth().clickable { AppSettings.setTorrentLimitKb(key); com.ali.files.torrent.TorrentEngine.applyLimits() }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = AppSettings.torrentLimitKb.value == key, onClick = { AppSettings.setTorrentLimitKb(key); com.ali.files.torrent.TorrentEngine.applyLimits() })
-                Text(label)
-            }
-        }
-
-        HorizontalDivider()
         Section("مساحة التطبيق")
         StorageSection(browser)
 
         HorizontalDivider()
-        Section("الخزنة")
-        if (biometricAvailable(ctx)) {
-            SwitchRow("الفتح بالبصمة", null, AppSettings.biometric.value) { AppSettings.setBiometric(it) }
-        }
-        if (VaultLock.hasPin()) {
-            ListItem(headlineContent = { Text("غيّر الرمز السري") }, modifier = Modifier.clickable { changePin = true })
-        }
-        ListItem(
-            headlineContent = { Text("الحماية") },
-            supportingContent = {
-                Text("كل ملف بيتشفر AES-256 بمفتاح خاص بيه، والمفاتيح محمية بشريحة الأمان في الموبايل. الخزنة بتتقفل أول ما تخرج من التطبيق، وممنوع تصوير الشاشة جواها.")
-            },
-        )
-
-        HorizontalDivider()
         Section("عن التطبيق")
-        ListItem(headlineContent = { Text("ملفات علي") }, supportingContent = { Text("الإصدار ${BuildConfigInfo.version(ctx)} • المرحلة الأولى: المتصفح، المحمّل، الخزنة") })
+        ListItem(headlineContent = { Text("ملفات علي") }, supportingContent = { Text("الإصدار ${BuildConfigInfo.version(ctx)} • متصفح ومحمّل ومكتبة ومشغل") })
     }
 
     if (confirmClear) {
@@ -273,48 +222,8 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("إلغاء") } },
         )
     }
-    if (changePin) ChangePinDialog { changePin = false }
 }
 
-@Composable
-private fun ChangePinDialog(onDismiss: () -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var old by remember { mutableStateOf("") }
-    var new1 by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var working by remember { mutableStateOf(false) }
-    val kb = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
-    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
-        onDismissRequest = onDismiss,
-        title = { Text("تغيير الرمز") },
-        text = {
-            Column {
-                OutlinedTextField(old, { old = it.filter(Char::isDigit).take(8) }, label = { Text("الرمز الحالي") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = kb)
-                OutlinedTextField(new1, { new1 = it.filter(Char::isDigit).take(8) }, label = { Text("الرمز الجديد (4-8 أرقام)") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = kb)
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = !working && old.isNotEmpty() && new1.length >= 4, onClick = {
-                working = true
-                scope.launch {
-                    val ok = withContext(Dispatchers.Default) { VaultLock.check(old) }
-                    if (ok) {
-                        withContext(Dispatchers.Default) { VaultLock.setPin(new1) }
-                        Toast.makeText(ctx, "اتغيّر الرمز", Toast.LENGTH_SHORT).show()
-                        Vault.lock()
-                        onDismiss()
-                    } else {
-                        error = "الرمز الحالي غلط"
-                        working = false
-                    }
-                }
-            }) { Text("حفظ") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
-    )
-}
 
 
 @Composable

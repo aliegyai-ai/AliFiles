@@ -12,9 +12,7 @@
 -keep class com.fasterxml.jackson.** { *; }
 -keep class org.apache.commons.** { *; }
 -keep class ai.onnxruntime.** { *; }
--keep class org.torproject.** { *; }
 -keep class androidx.media3.** { *; }
 -keep class kotlinx.serialization.** { *; }
 -keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod, SourceFile, LineNumberTable
 -keepclasseswithmembernames class * { native <methods>; }
--keep class org.libtorrent4j.** { *; }

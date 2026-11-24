@@ -85,7 +85,6 @@ object AutoUpdate {
         val visible = runCatching { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }.getOrDefault(false)
         if (visible) return "التطبيق مفتوح"
         if (com.ali.files.download.Downloader.items.value.any { it.status == com.ali.files.download.DStatus.RUNNING }) return "فيه تحميل شغال"
-        if (com.ali.files.torrent.TorrentEngine.items.value.any { !it.rec.done && !it.rec.paused && it.down > 0 }) return "فيه تورنت بيحمّل"
         return null
     }
 

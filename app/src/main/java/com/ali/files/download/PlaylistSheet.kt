@@ -61,14 +61,13 @@ private val mbPerMin = mapOf(360 to 3L, 480 to 5L, 720 to 10L, 1080 to 20L)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlaylistSheet(url: String, headers: Map<String, String>, private: Boolean, onDismiss: () -> Unit, onStarted: (Boolean) -> Unit) {
+fun PlaylistSheet(url: String, headers: Map<String, String>, onDismiss: () -> Unit, onStarted: () -> Unit) {
     var info by remember { mutableStateOf<VideoExtractor.PlaylistInfo?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var picked by remember { mutableStateOf(setOf<Int>()) }
     var height by remember { mutableStateOf<Int?>(null) } // null = audio only
     var audioQ by remember { mutableStateOf(runCatching { AudioQ.valueOf(AppSettings.audioQuality.value) }.getOrDefault(AudioQ.HIGH)) }
     var fmt by remember { mutableStateOf(AppSettings.audioFormat.value) }
-    var toVault by remember { mutableStateOf(private || AppSettings.saveToVault.value) }
     val files by Library.files.collectAsState()
 
     LaunchedEffect(url) {
@@ -141,10 +140,6 @@ fun PlaylistSheet(url: String, headers: Map<String, String>, private: Boolean, o
                         FilterChip(selected = fmt == "mp3", onClick = { fmt = "mp3" }, label = { Text("MP3") })
                         FilterChip(selected = fmt == "m4a", onClick = { fmt = "m4a" }, label = { Text("M4A (أصغر)") })
                     }
-                    Row(Modifier.clickable { toVault = !toVault }, verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = toVault, onCheckedChange = { toVault = it })
-                        Text("احفظهم في الخزنة")
-                    }
                     Text(
                         "هيتحفظوا في مجلد «${p.title}» بالترتيب، ويتعملوا قايمة تشغيل جاهزة.",
                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -158,12 +153,12 @@ fun PlaylistSheet(url: String, headers: Map<String, String>, private: Boolean, o
                             picked.sorted().forEach { i ->
                                 val e = p.entries[i]
                                 Downloader.enqueueVideo(
-                                    e.url, "%02d".format(i + 1) + " - " + e.title, height, headers, toVault,
+                                    e.url, "%02d".format(i + 1) + " - " + e.title, height, headers,
                                     if (height == null) audioQ else null, fmt,
-                                    libFolder = if (toVault) null else folder, group = if (toVault) null else p.title.take(60),
+                                    libFolder = folder, group = p.title.take(60),
                                 )
                             }
-                            sheet.close { onStarted(toVault) }
+                            sheet.close(onStarted)
                         },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(52.dp),

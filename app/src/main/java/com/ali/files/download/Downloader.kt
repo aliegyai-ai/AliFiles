@@ -7,7 +7,6 @@ import com.ali.files.util.Notifications
 import com.ali.files.util.formatBytes
 import com.ali.files.util.mimeOf
 import com.ali.files.util.sanitizeFileName
-import com.ali.files.vault.Vault
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -65,7 +64,6 @@ object Downloader {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
-            .proxySelector(com.ali.files.browser.TorManager.proxySelector)   // through Tor while it's on
             .build()
     }
 
@@ -101,14 +99,14 @@ object Downloader {
     fun isHlsUrl(url: String, mime: String?): Boolean =
         url.substringBefore('?').endsWith(".m3u8", true) || (mime?.contains("mpegurl", true) == true)
 
-    fun enqueue(req: DownloadRequest, threads: Int, toVault: Boolean): Long {
+    fun enqueue(req: DownloadRequest, threads: Int): Long {
         val id = System.currentTimeMillis() * 10 + Random.nextInt(10)
         val hls = isHlsUrl(req.url, req.mime)
         var name = sanitizeFileName(req.fileName)
         if (hls && !name.endsWith(".ts", true)) name = name.substringBeforeLast('.') + ".ts"
         val item = DownloadItem(
             id = id, url = req.url, fileName = name, mime = req.mime, total = req.size,
-            threads = threads.coerceIn(1, 16), toVault = toVault, headers = req.headers, hls = hls,
+            threads = threads.coerceIn(1, 16), headers = req.headers, hls = hls,
         )
         _items.update { listOf(item) + it }
         save()
@@ -117,7 +115,7 @@ object Downloader {
     }
 
     fun enqueueVideo(
-        url: String, title: String, height: Int?, headers: Map<String, String>, toVault: Boolean,
+        url: String, title: String, height: Int?, headers: Map<String, String>,
         audioQ: AudioQ? = null, audioFormat: String = "mp3",
         libFolder: String? = null, group: String? = null,
     ): Long {
@@ -126,7 +124,7 @@ object Downloader {
         val ext = if (audio) ".$audioFormat" else ".mp4"
         val item = DownloadItem(
             id = id, url = url, fileName = sanitizeFileName(title) + ext,
-            mime = if (!audio) "video/mp4" else if (audioFormat == "m4a") "audio/mp4" else "audio/mpeg", toVault = toVault, headers = headers,
+            mime = if (!audio) "video/mp4" else if (audioFormat == "m4a") "audio/mp4" else "audio/mpeg", headers = headers,
             ytdlp = true, ytFormat = VideoExtractor.formatFor(height), audioOnly = audio,
             audioKbps = audioQ?.kbps(audioFormat) ?: 0, audioFormat = audioFormat, audioMono = audioQ?.mono == true,
             libFolder = libFolder, group = group,
@@ -170,27 +168,6 @@ object Downloader {
 
     fun clearFinished() {
         _items.update { l -> l.filterNot { it.status == DStatus.COMPLETED } }
-        save()
-    }
-
-    /** Moves a finished download from Download/AliFiles into the encrypted vault. */
-    suspend fun moveToVault(id: Long) {
-        val item = get(id) ?: return
-        item.libraryPath?.let { path ->
-            val f = java.io.File(path)
-            if (f.exists()) {
-                Vault.importFile(f, item.fileName, item.mime ?: mimeOf(item.fileName))
-                f.delete()
-                com.ali.files.library.Library.refresh()
-            }
-            update(id) { it.copy(libraryPath = null, savedInVault = true) }
-            save()
-            return
-        }
-        val uri = item.savedUri?.let { Uri.parse(it) } ?: return
-        Vault.importUri(uri, item.fileName)
-        runCatching { app.contentResolver.delete(uri, null, null) }
-        update(id) { it.copy(savedUri = null, savedInVault = true) }
         save()
     }
 
@@ -545,13 +522,7 @@ object Downloader {
             item.mime.isNullOrBlank() || item.mime == "application/octet-stream" || item.mime.startsWith("text/plain") -> mimeOf(item.fileName)
             else -> item.mime ?: mimeOf(item.fileName)
         }
-        if (item.toVault) {
-            Vault.importFile(part, item.fileName, mime)
-            part.delete()
-            update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, savedInVault = true, mime = mime) }
-            save()
-            Notifications.notifyDone(app, id, "اتحمل في الخزنة 🔒", item.fileName)
-        } else {
+        run {
             // stays inside the app (the library); the user saves it to the phone only if they want
             val dest = com.ali.files.library.Library.add(part, item.fileName, item.headers["Referer"]?.takeIf { it.startsWith("http") } ?: item.url, item.libFolder)
             // from a playlist: it joins the same playlist in the app, in the playlist's order

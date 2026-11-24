@@ -56,20 +56,6 @@
                 <data android:scheme="http" />
                 <data android:scheme="https" />
             </intent-filter>
-            <!-- torrents: magnet links and .torrent files -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="magnet" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" />
-                <data android:scheme="file" />
-                <data android:mimeType="application/x-bittorrent" />
-            </intent-filter>
             <!-- «open with» for videos and songs from other apps -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -114,11 +100,6 @@
             android:name=".browser.BgMediaService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-
-        <service
-            android:name=".torrent.TorrentService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".download.DownloadService"
