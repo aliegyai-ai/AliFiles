@@ -419,8 +419,10 @@ object VideoExtractor {
         req.addOption("-f", item.ytFormat ?: formatFor(720))
         if (item.audioOnly) {
             req.addOption("-x")
-            req.addOption("--audio-format", "mp3")
-            req.addOption("--audio-quality", "0")
+            req.addOption("--audio-format", item.audioFormat.ifBlank { "mp3" })
+            req.addOption("--audio-quality", if (item.audioKbps > 0) "${item.audioKbps}K" else "0")
+            // speech: one channel is enough and half the size
+            if (item.audioMono) req.addOption("--postprocessor-args", "ExtractAudio:-ac 1")
         } else {
             req.addOption("--merge-output-format", "mp4")
         }

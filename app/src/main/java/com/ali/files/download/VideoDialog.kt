@@ -89,12 +89,16 @@ fun VideoDialog(
     var state by remember(req) { mutableStateOf<Load>(Load.Loading) }
     var choice by remember(req) { mutableStateOf<Int?>(null) } // AUDIO or a height
     var toVault by remember(req) { mutableStateOf(req.private || AppSettings.saveToVault.value) }
+    var audioQ by remember(req) { mutableStateOf(runCatching { AudioQ.valueOf(AppSettings.audioQuality.value) }.getOrDefault(AudioQ.HIGH)) }
+    var audioFmt by remember(req) { mutableStateOf(AppSettings.audioFormat.value) }
 
     LaunchedEffect(req) {
         state = try {
             val m = VideoExtractor.info(req)
             val s = VideoExtractor.suggest(m)
             choice = if (s.audioOnly) AUDIO else (s.height ?: m.heights.firstOrNull()?.height ?: AUDIO)
+            // long talks (lessons, Quran): suggest the small «speech» quality
+            if (m.durationSec > 20 * 60) audioQ = AudioQ.VOICE
             Load.Ready(m, s)
         } catch (e: Throwable) {
             Load.Failed(e.message?.lineSequence()?.lastOrNull { it.isNotBlank() }?.take(220) ?: "تعذر قراءة الفيديو")
@@ -167,13 +171,30 @@ fun VideoDialog(
                         }
                     }
 
-                    // audio only
-                    Text("صوت بس", fontSize = 13.sp, color = scheme.onSurfaceVariant)
-                    QualityCard(
-                        selected = choice == AUDIO, audio = true, label = "MP3",
-                        size = s.meta.audio.approxBytes, recommended = s.suggestion.audioOnly,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { choice = AUDIO }
+                    // audio only: four qualities, with the size each would be
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("صوت بس", fontSize = 13.sp, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        listOf("mp3" to "MP3", "m4a" to "M4A (أصغر)").forEach { (f, l) ->
+                            androidx.compose.material3.FilterChip(
+                                selected = audioFmt == f, onClick = { audioFmt = f; choice = AUDIO },
+                                label = { Text(l, fontSize = 12.sp) }, modifier = Modifier.padding(start = 6.dp),
+                            )
+                        }
+                    }
+                    AudioQ.entries.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            row.forEach { q ->
+                                val bytes = if (s.meta.durationSec > 0) q.bytes(audioFmt, s.meta.durationSec) else 0L
+                                QualityCard(
+                                    selected = choice == AUDIO && audioQ == q, audio = true,
+                                    label = "${q.label} • ${q.kbps(audioFmt)}k", size = bytes,
+                                    recommended = s.suggestion.audioOnly && q == (if (s.meta.durationSec > 20 * 60) AudioQ.VOICE else AudioQ.HIGH),
+                                    modifier = Modifier.weight(1f),
+                                ) { choice = AUDIO; audioQ = q }
+                            }
+                        }
+                    }
+                    if (choice == AUDIO) Text(audioQ.hint, fontSize = 12.sp, color = scheme.primary)
 
                     // video qualities, three per row
                     if (s.meta.heights.isNotEmpty()) {
@@ -205,7 +226,8 @@ fun VideoDialog(
                         enabled = choice != null,
                         onClick = {
                             val c = choice ?: return@Button
-                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, toVault)
+                            if (c == AUDIO) { AppSettings.setAudioQuality(audioQ.name); AppSettings.setAudioFormat(audioFmt) }
+                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, toVault, if (c == AUDIO) audioQ else null, audioFmt)
                             onStarted(toVault)
                         },
                         shape = RoundedCornerShape(14.dp),
@@ -213,7 +235,7 @@ fun VideoDialog(
                     ) {
                         Icon(Icons.Filled.Download, null)
                         Spacer(Modifier.width(8.dp))
-                        Text(startLabel(choice, s.meta), fontWeight = FontWeight.Bold)
+                        Text(if (choice == AUDIO) "حمّل صوت ${audioQ.label}" + (if (s.meta.durationSec > 0) " (~${formatBytes(audioQ.bytes(audioFmt, s.meta.durationSec))})" else "") else startLabel(choice, s.meta), fontWeight = FontWeight.Bold)
                     }
                     // play right away, without downloading
                     OutlinedButton(

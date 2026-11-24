@@ -420,3 +420,62 @@ internal fun CustomCategoryDialog(existing: CustomCat?, onDismiss: () -> Unit, o
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
 }
+
+
+/** «صغّر الحجم»: pick a lower quality; shows how big the new file will be. */
+@Composable
+internal fun ShrinkDialog(f: LibFile, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val dur by androidx.compose.runtime.produceState(0L, f.path) { value = Library.duration(f) }
+    var q by remember { mutableStateOf(if (dur > 20 * 60_000L) com.ali.files.download.AudioQ.VOICE else com.ali.files.download.AudioQ.NORMAL) }
+    var fmt by remember { mutableStateOf("mp3") }
+    var replace by remember { mutableStateOf(f.kind == com.ali.files.util.FileKind.AUDIO) }
+    var working by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { if (!working) onDone() },
+        title = { Text(if (f.kind == com.ali.files.util.FileKind.VIDEO) "حوّله لصوت" else "صغّر الحجم") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("دلوقتي: ${formatBytes(f.size)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                com.ali.files.download.AudioQ.entries.forEach { o ->
+                    val est = o.bytes(fmt, dur / 1000)
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { q = o }
+                            .background(if (q == o) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent).padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${o.label} • ${o.kbps(fmt)}k", fontWeight = if (q == o) FontWeight.Bold else FontWeight.Normal)
+                            Text(o.hint, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (est > 0) Text("~${formatBytes(est)}", fontSize = 12.sp, color = if (est < f.size) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("mp3" to "MP3", "m4a" to "M4A (أصغر)").forEach { (k, l) ->
+                        androidx.compose.material3.FilterChip(selected = fmt == k, onClick = { fmt = k }, label = { Text(l) })
+                    }
+                }
+                if (f.kind == com.ali.files.util.FileKind.AUDIO) Row(Modifier.fillMaxWidth().clickable { replace = !replace }, verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(checked = replace, onCheckedChange = { replace = it })
+                    Text("امسح الأصلي (عشان توفّر المساحة)", fontSize = 13.sp)
+                }
+                if (working) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !working, onClick = {
+                working = true
+                scope.launch {
+                    runCatching { Library.shrinkAudio(f, q, fmt, replace) }
+                        .onSuccess { Toast.makeText(ctx, "خلص: ${formatBytes(it.length())} بدل ${formatBytes(f.size)}", Toast.LENGTH_LONG).show() }
+                        .onFailure { Toast.makeText(ctx, it.message ?: "تعذر", Toast.LENGTH_LONG).show() }
+                    working = false
+                    onDone()
+                }
+            }) { Text(if (working) "بيشتغل…" else "صغّره") }
+        },
+        dismissButton = { TextButton(enabled = !working, onClick = onDone) { Text("إلغاء") } },
+    )
+}

@@ -365,6 +365,35 @@ object Library {
         android.media.RingtoneManager.setActualDefaultRingtoneUri(app, type.rm, uri)
     }
 
+    /**
+     * «صغّر الحجم»: encodes a sound file again at a lower quality. [replace] = the smaller file takes
+     * the original's place (keeps favorites / playlists / category).
+     */
+    suspend fun shrinkAudio(f: LibFile, q: com.ali.files.download.AudioQ, format: String, replace: Boolean): File = withContext(Dispatchers.IO) {
+        val out = uniqueFile("${f.title} (${q.label}).$format", f.file.parentFile ?: dir)
+        val bin = File(app.applicationInfo.nativeLibraryDir, "libffmpeg.so")
+        val pkgs = File(app.noBackupFilesDir, "youtubedl-android/packages")
+        val codec = if (format == "m4a") listOf("-c:a", "aac") else listOf("-c:a", "libmp3lame")
+        val args = listOf(bin.path, "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", f.path, "-vn", "-map_metadata", "0") +
+            codec + listOf("-b:a", "${q.kbps(format)}k") + (if (q.mono) listOf("-ac", "1") else emptyList()) + listOf(out.path)
+        val pb = ProcessBuilder(args)
+        pb.environment()["LD_LIBRARY_PATH"] = "${pkgs.path}/python/usr/lib:${pkgs.path}/ffmpeg/usr/lib"
+        pb.redirectErrorStream(true)
+        val p = pb.start()
+        val log = p.inputStream.bufferedReader().readText()
+        if (p.waitFor() != 0 || !out.exists() || out.length() == 0L) {
+            out.delete()
+            throw IOException("تعذر تصغير الملف (${log.lines().lastOrNull { it.isNotBlank() }?.take(120) ?: ""})")
+        }
+        if (replace) {
+            val final = File(f.file.parentFile ?: dir, f.title + "." + format).let { if (it.exists() && it != f.file) uniqueFile(it.name, it.parentFile!!) else it }
+            f.file.delete()
+            out.renameTo(final)
+            remapPaths(f.path, final.absolutePath)
+            refresh(); final
+        } else { refresh(); out }
+    }
+
     /** A free name in [inDir] ("song.mp3" → "song (2).mp3" if taken). */
     fun uniqueFile(name: String, inDir: File = dir): File {
         val dir = inDir
