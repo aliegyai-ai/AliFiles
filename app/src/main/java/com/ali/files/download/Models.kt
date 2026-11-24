@@ -2,6 +2,18 @@ package com.ali.files.download
 
 import kotlinx.serialization.Serializable
 
+/** Audio-only quality: smaller files for less space. [m4a] = same quality at a lower bitrate. */
+enum class AudioQ(val label: String, val mp3: Int, val m4a: Int, val mono: Boolean, val hint: String) {
+    HIGH("عالية", 320, 256, false, "سماعات كويسة"),
+    NORMAL("عادية", 128, 96, false, "أغلب الأغاني"),
+    SAVER("موفّرة", 64, 48, false, "لو المساحة قليلة"),
+    VOICE("كلام", 32, 32, true, "قرآن ودروس وبودكاست");
+
+    fun kbps(format: String) = if (format == "m4a") m4a else mp3
+    /** about how big: bitrate × length */
+    fun bytes(format: String, seconds: Long) = kbps(format) * 1000L / 8 * seconds
+}
+
 @Serializable
 enum class DStatus { QUEUED, RUNNING, PAUSED, COMPLETED, FAILED }
 
@@ -36,6 +48,10 @@ data class DownloadItem(
     val ytdlp: Boolean = false,
     val ytFormat: String? = null,
     val audioOnly: Boolean = false,
+    /** audio-only downloads: bitrate (0 = best), "mp3" / "m4a", one channel (speech) */
+    val audioKbps: Int = 0,
+    val audioFormat: String = "mp3",
+    val audioMono: Boolean = false,
     val note: String? = null,
 ) {
     val fraction: Float

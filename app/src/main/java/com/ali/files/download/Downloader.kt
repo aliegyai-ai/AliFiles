@@ -116,14 +116,19 @@ object Downloader {
         return id
     }
 
-    fun enqueueVideo(url: String, title: String, height: Int?, headers: Map<String, String>, toVault: Boolean): Long {
+    fun enqueueVideo(
+        url: String, title: String, height: Int?, headers: Map<String, String>, toVault: Boolean,
+        audioQ: AudioQ? = null, audioFormat: String = "mp3",
+    ): Long {
         val id = System.currentTimeMillis() * 10 + Random.nextInt(10)
         val audio = height == null
+        val ext = if (audio) ".$audioFormat" else ".mp4"
         val item = DownloadItem(
-            id = id, url = url, fileName = sanitizeFileName(title) + if (audio) ".mp3" else ".mp4",
-            mime = if (audio) "audio/mpeg" else "video/mp4", toVault = toVault, headers = headers,
+            id = id, url = url, fileName = sanitizeFileName(title) + ext,
+            mime = if (!audio) "video/mp4" else if (audioFormat == "m4a") "audio/mp4" else "audio/mpeg", toVault = toVault, headers = headers,
             ytdlp = true, ytFormat = VideoExtractor.formatFor(height), audioOnly = audio,
-            note = if (audio) "صوت بس" else "فيديو ${height}p",
+            audioKbps = audioQ?.kbps(audioFormat) ?: 0, audioFormat = audioFormat, audioMono = audioQ?.mono == true,
+            note = if (audio) "صوت ${audioQ?.label ?: ""} ${audioFormat.uppercase()}".replace("  ", " ") else "فيديو ${height}p",
         )
         _items.update { listOf(item) + it }
         save()

@@ -25,6 +25,9 @@ object AppSettings {
     @Volatile var inPageButtonsFast = false
     /** make websites dark when the phone is in dark mode */
     val darkSites = mutableStateOf(true)
+    /** the last audio-only choice (remembered) */
+    val audioQuality = mutableStateOf("HIGH")
+    val audioFormat = mutableStateOf("mp3")
     /** updates: "auto" (download + install by itself), "download" (download, ask before installing), "ask" */
     val updateMode = mutableStateOf("auto")
     val updateWifiOnly = mutableStateOf(true)
@@ -60,6 +63,8 @@ object AppSettings {
         privateLock.value = sp.getBoolean("privateLock", false)
         inPageButtons.value = sp.getBoolean("inPageButtons", false); inPageButtonsFast = inPageButtons.value
         darkSites.value = sp.getBoolean("darkSites", true)
+        audioQuality.value = sp.getString("audioQuality", "HIGH") ?: "HIGH"
+        audioFormat.value = sp.getString("audioFormat", "mp3") ?: "mp3"
         updateMode.value = sp.getString("updateMode", "auto") ?: "auto"
         updateWifiOnly.value = sp.getBoolean("updateWifiOnly", true)
         forgetMode.value = sp.getBoolean("forgetMode", false)
@@ -90,6 +95,8 @@ object AppSettings {
     fun setUpdateWifiOnly(v: Boolean) { updateWifiOnly.value = v; sp.edit().putBoolean("updateWifiOnly", v).apply() }
     fun setForgetMode(v: Boolean) { forgetMode.value = v; sp.edit().putBoolean("forgetMode", v).apply() }
     fun setKeepSites(v: Set<String>) { keepSites.value = v; sp.edit().putStringSet("keepSites", v).apply() }
+    fun setAudioQuality(v: String) { audioQuality.value = v; sp.edit().putString("audioQuality", v).apply() }
+    fun setAudioFormat(v: String) { audioFormat.value = v; sp.edit().putString("audioFormat", v).apply() }
     fun setDarkSites(v: Boolean) { darkSites.value = v; sp.edit().putBoolean("darkSites", v).apply() }
     fun setPrivateLock(v: Boolean) { privateLock.value = v; sp.edit().putBoolean("privateLock", v).apply() }
     fun setFloatingDownload(v: Boolean) { floatingDownload.value = v; sp.edit().putBoolean("floatingDownload", v).apply() }

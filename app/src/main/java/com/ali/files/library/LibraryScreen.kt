@@ -39,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
@@ -619,6 +620,7 @@ private fun PlaylistsView(lists: List<Playlist>, open: Playlist?, onOpen: (Playl
 private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit = {}, onCategory: () -> Unit = {}, onDismiss: () -> Unit) {
     val pins by Library.pinned.collectAsState()
     var tone by remember { mutableStateOf(false) }
+    var shrink by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val favs by Library.favorites.collectAsState()
@@ -659,6 +661,7 @@ private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit =
             Action(Icons.Filled.FolderZip, "اضغطه (zip)") { onDismiss(); onZip() }
             Action(Icons.Filled.PushPin, if (f.path in pins) "شيل التثبيت" else "ثبّته فوق") { Library.togglePin(f.path); onDismiss() }
             if (f.kind == FileKind.AUDIO) Action(Icons.Filled.NotificationsActive, "اعمله نغمة") { tone = true }
+            if (f.kind == FileKind.AUDIO || f.kind == FileKind.VIDEO) Action(Icons.Filled.Compress, if (f.kind == FileKind.VIDEO) "حوّله لصوت بحجم صغير" else "صغّر الحجم") { shrink = true }
             Action(Icons.Filled.Share, "مشاركة") { onDismiss(); FileStore.share(ctx, Library.uriFor(f.file), f.mime) }
             val fav = f.path in favs
             Action(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, if (fav) "شيل من المفضلة" else "ضيف للمفضلة") { Library.toggleFavorite(f.path); onDismiss() }
@@ -689,6 +692,7 @@ private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit =
     }
     if (pickList) PlaylistPicker(f) { pickList = false; onDismiss() }
     if (tone) ToneDialog(f) { tone = false; onDismiss() }
+    if (shrink) ShrinkDialog(f) { shrink = false; onDismiss() }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
         title = { Text("تمسح «${f.title}»؟") },
