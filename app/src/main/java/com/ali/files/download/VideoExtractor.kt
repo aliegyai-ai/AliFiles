@@ -227,6 +227,62 @@ object VideoExtractor {
         }
     }
 
+    // ---------------------------------------------------------------- playlists & channels
+
+    data class PlaylistEntry(val url: String, val title: String, val durationSec: Long, val thumbnail: String?)
+    data class PlaylistInfo(val title: String, val entries: List<PlaylistEntry>)
+
+    /** a link to a whole list: a YouTube playlist (without a single video), a channel, a SoundCloud set */
+    fun isPlaylistOnly(url: String): Boolean {
+        val u = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return false
+        val h = u.host ?: return false
+        val p = u.path ?: ""
+        return when {
+            "youtube" in h -> (p.startsWith("/playlist") && u.getQueryParameter("list") != null) ||
+                p.startsWith("/@") || p.startsWith("/channel/") || p.startsWith("/c/") || p.startsWith("/user/")
+            "soundcloud" in h -> "/sets/" in p
+            else -> false
+        }
+    }
+
+    /** a single video that's also in a list (watch?v=…&list=…) */
+    fun playlistOf(url: String): String? {
+        val u = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return null
+        val list = u.getQueryParameter("list") ?: return null
+        if (list.startsWith("RD") || list == "WL" || list == "LL") return null // YouTube mixes: endless
+        return "https://www.youtube.com/playlist?list=$list"
+    }
+
+    /** Reads the list (titles, lengths, pictures) without downloading anything. Channels: the newest [max]. */
+    suspend fun playlist(url: String, headers: Map<String, String>, max: Int = 300): PlaylistInfo = withContext(Dispatchers.IO) {
+        ready.await()
+        val channel = isPlaylistOnly(url) && runCatching { android.net.Uri.parse(url).path ?: "" }.getOrDefault("").let { it.startsWith("/@") || it.startsWith("/channel/") || it.startsWith("/c/") || it.startsWith("/user/") }
+        val target = if (channel && !url.trimEnd('/').endsWith("/videos")) url.trimEnd('/') + "/videos" else url
+        val req = YoutubeDLRequest(target)
+        req.addOption("--flat-playlist")
+        req.addOption("-J")
+        req.addOption("--playlist-end", (if (channel) minOf(max, 30) else max).toString())
+        cacheOptions(req)
+        headerOptions(req, headers)
+        val out = try { YoutubeDL.getInstance().execute(req).out } catch (e: Exception) { runCatching { update() }; YoutubeDL.getInstance().execute(req).out }
+        val j = org.json.JSONObject(out)
+        val arr = j.optJSONArray("entries") ?: org.json.JSONArray()
+        val entries = (0 until arr.length()).mapNotNull { i ->
+            val e = arr.optJSONObject(i) ?: return@mapNotNull null
+            val id = e.optString("id")
+            val link = e.optString("url").takeIf { it.startsWith("http") }
+                ?: if (id.isNotBlank() && ("youtube" in target || "youtu.be" in target)) "https://www.youtube.com/watch?v=$id" else e.optString("webpage_url")
+            if (link.isNullOrBlank()) return@mapNotNull null
+            val title = e.optString("title").ifBlank { "فيديو ${i + 1}" }
+            if (title == "[Private video]" || title == "[Deleted video]") return@mapNotNull null
+            val thumbs = e.optJSONArray("thumbnails")
+            val thumb = thumbs?.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
+                ?: if ("youtube" in target && id.isNotBlank()) "https://i.ytimg.com/vi/$id/mqdefault.jpg" else null
+            PlaylistEntry(link, title, e.optDouble("duration", 0.0).toLong(), thumb)
+        }
+        PlaylistInfo(j.optString("title").ifBlank { "قايمة تشغيل" }, entries)
+    }
+
     private fun headerOptions(req: YoutubeDLRequest, headers: Map<String, String>) {
         headers["Cookie"]?.takeIf { it.isNotBlank() }?.let { req.addOption("--add-header", "Cookie:$it") }
         headers["Referer"]?.takeIf { it.isNotBlank() }?.let { req.addOption("--add-header", "Referer:$it") }

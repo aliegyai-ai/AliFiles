@@ -133,6 +133,8 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
         SwitchRow("نزّل التحديثات على الواي فاي بس", "عشان الباقة", AppSettings.updateWifiOnly.value) {
             AppSettings.setUpdateWifiOnly(it); com.ali.files.update.AutoUpdate.schedule(ctxU)
         }
+        val upLog = remember { com.ali.files.update.AutoUpdate.lastLog(ctxU) }
+        if (upLog.isNotBlank()) Text("آخر حاجة حصلت: $upLog", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp))
 
         HorizontalDivider()
         Section("التحميل")
@@ -256,7 +258,7 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
     }
 
     if (confirmClear) {
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { confirmClear = false },
             title = { Text("مسح بيانات التصفح؟") },
             text = { Text("هتخرج من كل المواقع اللي مسجل فيها.") },
@@ -281,7 +283,7 @@ private fun ChangePinDialog(onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
     val kb = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text("تغيير الرمز") },
         text = {

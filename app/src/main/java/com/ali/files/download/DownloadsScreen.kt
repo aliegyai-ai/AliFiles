@@ -277,7 +277,7 @@ private fun statusLine(d: DownloadItem): String {
 private fun AddLinkDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
     val ctx = LocalContext.current
     var url by remember { mutableStateOf("") }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text("تحميل لينك") },
         text = {
@@ -309,7 +309,7 @@ fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: (toVa
     var threads by remember(req) { mutableFloatStateOf(AppSettings.threads.intValue.toFloat()) }
     var toVault by remember(req) { mutableStateOf(req.private || AppSettings.saveToVault.value) }
     val hls = Downloader.isHlsUrl(req.url, req.mime)
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text("تحميل ملف") },
         text = {

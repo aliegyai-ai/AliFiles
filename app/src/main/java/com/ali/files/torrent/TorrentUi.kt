@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -142,8 +143,13 @@ fun TorrentAddSheet(source: TorrentSource, private: Boolean, onDismiss: () -> Un
             }
             .onFailure { error = it.message ?: "التورنت ده مش صالح" }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(
+        onDismissRequest = {}, sheetState = com.ali.files.ui.stickySheetState(),
+    ) {
         Column(Modifier.fillMaxWidth().sheetBody().padding(horizontal = 18.dp).padding(bottom = 18.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                IconButton(onClick = onDismiss) { Icon(androidx.compose.material.icons.Icons.Filled.Close, "قفل") }
+            }
             val p = pending
             when {
                 error != null -> {
@@ -263,7 +269,7 @@ fun TorrentList(onAdd: (TorrentSource) -> Unit) {
         onMagnet = { addDialog = false; onAdd(TorrentSource.Magnet(it)) },
     )
     removing?.let { t ->
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { removing = null },
             title = { Text("تشيل التورنت ده؟") },
             text = { Text(if (t.rec.done) "هيتشال من القايمة بس، الملفات هتفضل ${t.rec.result ?: ""}." else "اللي اتحمّل منه لحد دلوقتي هيتمسح.") },
@@ -348,7 +354,7 @@ private fun play(path: String) {
 private fun AddTorrentDialog(onDismiss: () -> Unit, onPickFile: () -> Unit, onMagnet: (String) -> Unit) {
     val ctx = LocalContext.current
     var link by remember { mutableStateOf("") }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text("تورنت جديد") },
         text = {

@@ -417,7 +417,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
 
     c.sitePermission.value?.let { sp ->
         val what = sp.kinds.joinToString(" و") { when (it) { "camera" -> "الكاميرا"; "mic" -> "المايك"; else -> "مكانك" } }
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { sp.answer(false) },
             title = { Text("$what؟") },
             text = { Text("موقع ${sp.host} عايز يستخدم $what.") },
@@ -427,7 +427,7 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
     }
 
     ui.longPress.value?.let { lp ->
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { ui.longPress.value = null },
             title = { Text(if (lp.isImage) "صورة" else "رابط", maxLines = 1) },
             text = {
@@ -799,7 +799,7 @@ private fun StartPage(c: BrowserController, ui: UiState) {
 
     if (adding) AddSiteDialog(onDismiss = { adding = false }) { name, url -> c.addBookmark(name, url); adding = false }
     removing?.let { b ->
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { removing = null },
             title = { Text("تشيل «${b.title}»؟") },
             text = { Text("هيتشال من الصفحة الرئيسية والمفضلة.") },
@@ -928,7 +928,7 @@ private fun ContinueCard(f: com.ali.files.library.LibFile, all: List<com.ali.fil
 private fun AddSiteDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text("إضافة موقع للرئيسية") },
         text = {

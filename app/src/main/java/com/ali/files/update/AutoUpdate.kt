@@ -51,8 +51,7 @@ object AutoUpdate {
     /** You just left the app: if an update is waiting, install it in a few seconds. */
     fun installOnLeave(c: Context) {
         if (AppSettings.updateMode.value != "auto") return
-        val s = Updater.state.value
-        if (s !is UpdateState.Ready && s !is UpdateState.Available) return
+        // always: the worker checks, downloads if needed, then installs
         WorkManager.getInstance(c).enqueueUniqueWork(
             "update-now", androidx.work.ExistingWorkPolicy.REPLACE,
             androidx.work.OneTimeWorkRequestBuilder<Worker>().setInitialDelay(4, TimeUnit.SECONDS).build(),
@@ -71,18 +70,32 @@ object AutoUpdate {
             val s = Updater.state.value
             if (s is UpdateState.Available) Updater.download(app, s.info)
             val ready = Updater.state.value as? UpdateState.Ready ?: return Result.success()
-            if (AppSettings.updateMode.value == "auto" && quietMoment()) install(app, ready.apk, ready.info, background = true)
-            else notifyReady(app, ready.info)
+            if (AppSettings.updateMode.value == "auto") {
+                when (val why = busyReason()) {
+                    null -> { log(app, "بيثبّت ${ready.info.versionName}…"); install(app, ready.apk, ready.info, background = true) }
+                    else -> { log(app, "التحديث مستني: $why"); notifyReady(app, ready.info) }
+                }
+            } else notifyReady(app, ready.info)
             return Result.success()
         }
     }
 
-    /** not on screen, nothing downloading, nothing playing */
-    private fun quietMoment(): Boolean {
+    /** why now isn't a good moment (null = go ahead): the app is open, or something is downloading */
+    private fun busyReason(): String? {
         val visible = runCatching { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }.getOrDefault(false)
-        val busy = com.ali.files.download.Downloader.items.value.any { it.active } || com.ali.files.torrent.TorrentEngine.active
-        return !visible && !busy
+        if (visible) return "التطبيق مفتوح"
+        if (com.ali.files.download.Downloader.items.value.any { it.status == com.ali.files.download.DStatus.RUNNING }) return "فيه تحميل شغال"
+        if (com.ali.files.torrent.TorrentEngine.items.value.any { !it.rec.done && !it.rec.paused && it.down > 0 }) return "فيه تورنت بيحمّل"
+        return null
     }
+
+    /** the last thing that happened (shown in settings, to see why an update didn't install) */
+    fun log(c: Context, msg: String) {
+        val t = java.text.SimpleDateFormat("d/M HH:mm", java.util.Locale("ar")).format(java.util.Date())
+        c.getSharedPreferences("update", Context.MODE_PRIVATE).edit().putString("log", "$t — $msg").apply()
+    }
+
+    fun lastLog(c: Context): String = c.getSharedPreferences("update", Context.MODE_PRIVATE).getString("log", "") ?: ""
 
     /**
      * Installs through Android's package installer (not «open the APK»), so the app becomes its own
@@ -110,6 +123,7 @@ object AutoUpdate {
         override fun onReceive(c: Context, i: Intent) {
             when (i.getIntExtra(PackageInstaller.EXTRA_STATUS, -999)) {
                 PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                    log(c, "أندرويد طلب إنك توافق على التثبيت")
                     @Suppress("DEPRECATION") val confirm = i.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
                     confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     val visible = runCatching { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }.getOrDefault(false)
@@ -119,9 +133,10 @@ object AutoUpdate {
                         PendingIntent.getActivity(c, 5, confirm, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
                     )
                 }
-                PackageInstaller.STATUS_SUCCESS -> {}
+                PackageInstaller.STATUS_SUCCESS -> log(c, "اتثبت ✓")
                 else -> {
                     val msg = i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""
+                    log(c, "التثبيت فشل: $msg")
                     if (!i.getBooleanExtra("background", false)) android.widget.Toast.makeText(c, "التثبيت ما تمّش $msg", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
@@ -133,6 +148,7 @@ object AutoUpdate {
         override fun onReceive(c: Context, i: Intent) {
             if (i.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
             val v = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName }.getOrNull() ?: return
+            log(c, "اتحدّث لنسخة $v ✓")
             notify(c, "ملفات علي اتحدّث لنسخة $v ✨", "اضغط وشوف الجديد", Notifications.openAppIntent(c, 0))
             schedule(c)
         }

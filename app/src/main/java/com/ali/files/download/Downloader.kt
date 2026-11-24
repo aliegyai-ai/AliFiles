@@ -119,6 +119,7 @@ object Downloader {
     fun enqueueVideo(
         url: String, title: String, height: Int?, headers: Map<String, String>, toVault: Boolean,
         audioQ: AudioQ? = null, audioFormat: String = "mp3",
+        libFolder: String? = null, group: String? = null,
     ): Long {
         val id = System.currentTimeMillis() * 10 + Random.nextInt(10)
         val audio = height == null
@@ -128,6 +129,7 @@ object Downloader {
             mime = if (!audio) "video/mp4" else if (audioFormat == "m4a") "audio/mp4" else "audio/mpeg", toVault = toVault, headers = headers,
             ytdlp = true, ytFormat = VideoExtractor.formatFor(height), audioOnly = audio,
             audioKbps = audioQ?.kbps(audioFormat) ?: 0, audioFormat = audioFormat, audioMono = audioQ?.mono == true,
+            libFolder = libFolder, group = group,
             note = if (audio) "صوت ${audioQ?.label ?: ""} ${audioFormat.uppercase()}".replace("  ", " ") else "فيديو ${height}p",
         )
         _items.update { listOf(item) + it }
@@ -551,7 +553,9 @@ object Downloader {
             Notifications.notifyDone(app, id, "اتحمل في الخزنة 🔒", item.fileName)
         } else {
             // stays inside the app (the library); the user saves it to the phone only if they want
-            val dest = com.ali.files.library.Library.add(part, item.fileName, item.headers["Referer"]?.takeIf { it.startsWith("http") } ?: item.url)
+            val dest = com.ali.files.library.Library.add(part, item.fileName, item.headers["Referer"]?.takeIf { it.startsWith("http") } ?: item.url, item.libFolder)
+            // from a playlist: it joins the same playlist in the app, in the playlist's order
+            item.group?.let { com.ali.files.library.Library.addToGroup(it, dest.absolutePath) }
             update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, libraryPath = dest.absolutePath, fileName = dest.name, mime = mime) }
             save()
             Notifications.notifyDone(app, id, "اتحمّل في المكتبة", "${dest.name} • ${formatBytes(get(id)?.downloaded ?: 0)}")

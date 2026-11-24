@@ -211,7 +211,7 @@ internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onDi
         if (!n.isNullOrBlank() && !Library.renameFolder(d, n)) toast("تعذر تغيير الاسم")
         onDismiss()
     }
-    if (coloring) AlertDialog(
+    if (coloring) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { coloring = false },
         title = { Text("لون المجلد") },
         text = {
@@ -227,7 +227,7 @@ internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onDi
         },
         confirmButton = { TextButton(onClick = { coloring = false }) { Text("إلغاء") } },
     )
-    if (confirm) AlertDialog(
+    if (confirm) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { confirm = false },
         title = { Text("تمسح «${d.name}»؟") },
         text = { Text("المجلد وكل اللي فيه (${d.count} ملف) هيروحوا سلة المهملات 30 يوم.") },
@@ -241,7 +241,7 @@ internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onDi
 internal fun FolderPicker(title: String, exclude: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     val folders by Library.folders.collectAsState()
     var creating by remember { mutableStateOf(false) }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
@@ -302,7 +302,7 @@ internal fun TrashSheet(onDismiss: () -> Unit) {
             }
         }
     }
-    if (confirmEmpty) AlertDialog(
+    if (confirmEmpty) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { confirmEmpty = false },
         title = { Text("تفضّي السلة؟") },
         text = { Text("كل اللي فيها هيتمسح نهائي ومش هيرجع.") },
@@ -316,7 +316,7 @@ internal fun TrashSheet(onDismiss: () -> Unit) {
 internal fun ToneDialog(f: LibFile, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDone,
         title = { Text("اعمله نغمة") },
         text = {
@@ -360,7 +360,7 @@ internal fun CategoryPicker(
     current: String?, builtins: List<Triple<String, String, Color>>, custom: List<CustomCat>,
     onDismiss: () -> Unit, onNew: () -> Unit, onPick: (String?, String) -> Unit,
 ) {
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text("حطه في تصنيف") },
         text = {
@@ -391,7 +391,7 @@ internal fun CustomCategoryDialog(existing: CustomCat?, onDismiss: () -> Unit, o
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var color by remember { mutableStateOf(existing?.color ?: 2) }
     var icon by remember { mutableStateOf(existing?.icon ?: 0) }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "تصنيف جديد" else "عدّل التصنيف") },
         text = {
@@ -432,7 +432,7 @@ internal fun ShrinkDialog(f: LibFile, onDone: () -> Unit) {
     var fmt by remember { mutableStateOf("mp3") }
     var replace by remember { mutableStateOf(f.kind == com.ali.files.util.FileKind.AUDIO) }
     var working by remember { mutableStateOf(false) }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { if (!working) onDone() },
         title = { Text(if (f.kind == com.ali.files.util.FileKind.VIDEO) "حوّله لصوت" else "صغّر الحجم") },
         text = {

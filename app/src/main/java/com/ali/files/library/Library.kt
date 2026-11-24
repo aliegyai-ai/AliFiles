@@ -407,8 +407,8 @@ object Library {
     }
 
     /** Moves a finished download into the library ([source] = the site, for «a folder per site»). */
-    fun add(src: File, name: String, source: String? = null): File {
-        val sub = when (com.ali.files.util.AppSettings.autoFolder.value) {
+    fun add(src: File, name: String, source: String? = null, folder: String? = null): File {
+        val sub = if (folder != null) sanitizeFileName(folder) else when (com.ali.files.util.AppSettings.autoFolder.value) {
             "type" -> when (kindOf(null, name)) {
                 FileKind.VIDEO -> "فيديوهات"; FileKind.AUDIO -> "أغاني وصوتيات"; FileKind.IMAGE -> "صور"
                 FileKind.ARCHIVE -> "ملفات مضغوطة"; else -> "مستندات وملفات"
@@ -498,6 +498,14 @@ object Library {
 
     fun addToPlaylist(name: String, path: String) =
         savePlaylists(_playlists.value.map { if (it.name == name && path !in it.paths) it.copy(paths = it.paths + path) else it })
+
+    /** A playlist downloaded from YouTube etc.: files join it and stay sorted by their «01 - » number. */
+    fun addToGroup(name: String, path: String) {
+        val l = _playlists.value
+        val p = l.firstOrNull { it.name == name }
+        val paths = ((p?.paths ?: emptyList()) + path).distinct().sortedBy { File(it).name }
+        savePlaylists(if (p == null) l + Playlist(name, paths) else l.map { if (it.name == name) it.copy(paths = paths) else it })
+    }
 
     fun removeFromPlaylist(name: String, path: String) =
         savePlaylists(_playlists.value.map { if (it.name == name) it.copy(paths = it.paths - path) else it })

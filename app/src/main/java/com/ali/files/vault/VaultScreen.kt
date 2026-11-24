@@ -468,7 +468,7 @@ private fun VaultContent() {
     }
 
     askDeleteOriginals?.let { uris ->
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { askDeleteOriginals = null },
             title = { Text("تمسح النسخ الأصلية؟") },
             text = { Text("الملفات اتشفرت جوه الخزنة. لو عاوز محدش يلاقيها برة، امسح النسخة الأصلية (${uris.size} ملف).") },
@@ -484,7 +484,7 @@ private fun VaultContent() {
     }
 
     if (confirmDelete) {
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { confirmDelete = false },
             title = { Text("حذف ${selected.size} ملف نهائياً؟") },
             text = { Text("الحذف من الخزنة مالوش رجوع.") },
@@ -501,7 +501,7 @@ private fun VaultContent() {
 
     renaming?.let { e ->
         var name by remember(e.id) { mutableStateOf(e.name) }
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { renaming = null },
             title = { Text("إعادة تسمية") },
             text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true) },
@@ -609,7 +609,7 @@ fun ImportSharedDialog(uris: List<Uri>, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var working by remember { mutableStateOf(false) }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { if (!working) onDismiss() },
         title = { Text("حط ${uris.size} ملف في الخزنة؟") },
         text = {

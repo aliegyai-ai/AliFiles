@@ -168,7 +168,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     // ---------------------------------------------- «شوف الجديد» after an update
     var whatsNew by remember { mutableStateOf(com.ali.files.update.AutoUpdate.whatsNew(ctx)) }
     whatsNew?.let { (name, notes) ->
-        androidx.compose.material3.AlertDialog(
+        androidx.compose.material3.AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { com.ali.files.update.AutoUpdate.markSeen(ctx); whatsNew = null },
             title = { Text("الجديد في $name ✨") },
             text = {
@@ -325,7 +325,7 @@ private fun FloatingNav(tab: Int, activeDownloads: Int, onPick: (Int) -> Unit) {
 @Composable
 fun NameAsk(title: String, hint: String, initial: String, onSkip: () -> Unit, onSave: (String) -> Unit) {
     var name by remember { mutableStateOf(initial) }
-    androidx.compose.material3.AlertDialog(
+    androidx.compose.material3.AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onSkip,
         title = { Text(title) },
         text = {

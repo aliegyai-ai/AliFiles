@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lightbulb
@@ -86,6 +88,13 @@ fun VideoDialog(
     onStarted: (toVault: Boolean) -> Unit,
     onFallback: (DownloadRequest) -> Unit,
 ) {
+    // a whole playlist / channel → its own sheet
+    var asList by remember(req) { mutableStateOf(if (VideoExtractor.isPlaylistOnly(req.url)) req.url else null) }
+    asList?.let { listUrl ->
+        PlaylistSheet(listUrl, req.headers, req.private, onDismiss = onDismiss, onStarted = onStarted)
+        return
+    }
+    val inList = remember(req) { VideoExtractor.playlistOf(req.url) }
     var state by remember(req) { mutableStateOf<Load>(Load.Loading) }
     var choice by remember(req) { mutableStateOf<Int?>(null) } // AUDIO or a height
     var toVault by remember(req) { mutableStateOf(req.private || AppSettings.saveToVault.value) }
@@ -107,11 +116,28 @@ fun VideoDialog(
 
     val scheme = MaterialTheme.colorScheme
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    // a stray tap or swipe doesn't close it — only «✕» / «إلغاء»
+    ModalBottomSheet(
+        onDismissRequest = {}, sheetState = com.ali.files.ui.stickySheetState(),
+    ) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).navigationBarsPadding().padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                androidx.compose.material3.IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "قفل") }
+            }
+            // this video is part of a playlist: offer the whole list
+            if (inList != null) androidx.compose.material3.Surface(
+                onClick = { asList = inList }, shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(10.dp))
+                    Text("الفيديو ده جزء من قايمة تشغيل — حمّل القايمة كلها", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                }
+            }
             when (val s = state) {
                 Load.Loading -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     // what the page already told us, shown right away
@@ -337,7 +363,7 @@ private fun SaveChoice(label: String, icon: androidx.compose.ui.graphics.vector.
 }
 
 @Composable
-private fun Thumb(url: String?, modifier: Modifier) {
+internal fun Thumb(url: String?, modifier: Modifier) {
     val bmp by produceState<Bitmap?>(null, url) {
         if (url != null) {
             value = withContext(Dispatchers.IO) {
