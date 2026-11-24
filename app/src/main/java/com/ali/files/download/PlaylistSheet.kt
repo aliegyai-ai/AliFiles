@@ -81,9 +81,8 @@ fun PlaylistSheet(url: String, headers: Map<String, String>, onDismiss: () -> Un
             .onFailure { error = it.message?.lineSequence()?.lastOrNull { l -> l.isNotBlank() }?.take(200) ?: "تعذر قراءة القايمة" }
     }
 
-    val sheet = com.ali.files.ui.rememberGuardedSheet()
-    val close = { sheet.close(onDismiss) }
-    ModalBottomSheet(onDismissRequest = {}, sheetState = sheet.state) {
+    val close = onDismiss
+    com.ali.files.ui.OverlaySheet(onBack = close) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).navigationBarsPadding().padding(bottom = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(info?.title ?: "قايمة تشغيل", fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -158,7 +157,7 @@ fun PlaylistSheet(url: String, headers: Map<String, String>, onDismiss: () -> Un
                                     libFolder = folder, group = p.title.take(60),
                                 )
                             }
-                            sheet.close(onStarted)
+                            onStarted()
                         },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(52.dp),
