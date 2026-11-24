@@ -17,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ali.files.R
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.navigationBarsPadding
 
 // Fonts: Readex Pro for everything you read, Reem Kufi (Kufic) for titles and the app's name
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
@@ -112,3 +114,12 @@ private val Light = lightColorScheme(
 fun AppTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = Dark, typography = AppTypography, shapes = AppShapes, content = content)
 }
+
+/**
+ * For the content of a bottom sheet: scrolls when it's taller than the screen and keeps clear of the
+ * phone's navigation bar — so the last items of a list are never cut off.
+ */
+@androidx.compose.runtime.Composable
+fun androidx.compose.ui.Modifier.sheetBody(): androidx.compose.ui.Modifier =
+    this.verticalScroll(androidx.compose.foundation.rememberScrollState())
+        .then(androidx.compose.ui.Modifier.navigationBarsPadding())

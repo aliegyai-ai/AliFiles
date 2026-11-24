@@ -1,5 +1,6 @@
 package com.ali.files.torrent
 
+import com.ali.files.ui.sheetBody
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -142,7 +143,7 @@ fun TorrentAddSheet(source: TorrentSource, private: Boolean, onDismiss: () -> Un
             .onFailure { error = it.message ?: "التورنت ده مش صالح" }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 18.dp)) {
+        Column(Modifier.fillMaxWidth().sheetBody().padding(horizontal = 18.dp).padding(bottom = 18.dp)) {
             val p = pending
             when {
                 error != null -> {

@@ -2,6 +2,7 @@
 
 package com.ali.files.library
 
+import com.ali.files.ui.sheetBody
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
@@ -38,6 +39,10 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -218,18 +223,41 @@ fun LibraryScreen() {
         value = files.filter { it.kind == FileKind.AUDIO }.associate { it.path to Library.duration(it) }
     }
     fun isLong(f: LibFile) = (durations[f.path] ?: 0L) > 20 * 60_000L
-    val shown = Library.sorted(when (filter) {
-        LFilter.ALL -> files.filter { it.folder == current }
-        LFilter.VIDEO -> visible.filter { it.kind == FileKind.VIDEO }
-        LFilter.AUDIO -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && !isLong(it) }
-        LFilter.NOMUSIC -> visible.filter { it.kind == FileKind.AUDIO && it.separated() || it.kind == FileKind.VIDEO && it.separated() }
-        LFilter.LONG -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && isLong(it) }
+    val assigned by Library.cats.collectAsState()
+    val customCats by Library.custom.collectAsState()
+    var customOpen by remember { mutableStateOf<String?>(null) }
+    var newCat by remember { mutableStateOf(false) }
+    var editCat by remember { mutableStateOf<CustomCat?>(null) }
+    var catFor by remember { mutableStateOf<List<LibFile>?>(null) }
+    /** the category of a file: the one you chose, or the automatic one */
+    fun catOf(f: LibFile): String = assigned[f.path] ?: when {
+        f.separated() -> "NOMUSIC"
+        f.kind == FileKind.VIDEO -> "VIDEO"
+        f.kind == FileKind.AUDIO -> if (isLong(f)) "LONG" else "AUDIO"
+        f.kind == FileKind.IMAGE -> "IMAGE"
+        else -> "OTHER"
+    }
+    fun inFilter(f: LFilter): List<LibFile> = when (f) {
+        LFilter.ALL -> visible
         LFilter.FAV -> visible.filter { it.path in favs }
-        LFilter.IMAGE -> visible.filter { it.kind == FileKind.IMAGE }
-        LFilter.OTHER -> visible.filter { it.kind != FileKind.VIDEO && it.kind != FileKind.AUDIO && it.kind != FileKind.IMAGE }
         LFilter.LISTS -> emptyList()
-    })
-    val subFolders = if (filter == LFilter.ALL) Library.sortedFolders(folders.filter { it.parent == current }) else emptyList()
+        else -> visible.filter { catOf(it) == f.name }
+    }
+    val shown = Library.sorted(
+        when {
+            customOpen != null -> visible.filter { catOf(it) == "c:$customOpen" }
+            filter == LFilter.ALL -> files.filter { it.folder == current }
+            else -> inFilter(filter)
+        },
+    )
+    // files selected + a category card tapped = they go there
+    fun assignTo(cat: String, label: String) {
+        val l = files.filter { it.path in selection }
+        Library.setCategory(l, cat)
+        selection = emptySet()
+        Toast.makeText(ctx, "اتنقل ${l.size} لـ«$label»", Toast.LENGTH_SHORT).show()
+    }
+    val subFolders = if (filter == LFilter.ALL && customOpen == null) Library.sortedFolders(folders.filter { it.parent == current }) else emptyList()
     val selected = files.filter { it.path in selection }
 
 
@@ -265,6 +293,7 @@ fun LibraryScreen() {
                 scope.launch { l.forEach { runCatching { Library.moveToVault(it) } }; toast("اتنقلوا للخزنة 🔒") }
             },
             onDelete = { confirmDeleteMany = selected },
+            onCategory = { catFor = selected },
         ) else Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("${files.size} ملف • ${formatBytes(Library.totalSize())}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -291,30 +320,39 @@ fun LibraryScreen() {
         }
         SeparationJobs()
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val picking = selection.isNotEmpty()
             LFilter.entries.forEach { f ->
-                val list = when (f) {
-                    LFilter.ALL -> visible
-                    LFilter.VIDEO -> visible.filter { it.kind == FileKind.VIDEO }
-                    LFilter.AUDIO -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && !isLong(it) }
-                    LFilter.NOMUSIC -> visible.filter { it.separated() }
-                    LFilter.LONG -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && isLong(it) }
-                    LFilter.FAV -> visible.filter { it.path in favs }
-                    LFilter.IMAGE -> visible.filter { it.kind == FileKind.IMAGE }
-                    LFilter.OTHER -> visible.filter { it.kind != FileKind.VIDEO && it.kind != FileKind.AUDIO && it.kind != FileKind.IMAGE }
-                    LFilter.LISTS -> emptyList()
-                }
-                if (list.isEmpty() && f != LFilter.ALL && f != filter && f != LFilter.LISTS) return@forEach
+                val list = inFilter(f)
+                val canTake = f != LFilter.ALL && f != LFilter.FAV && f != LFilter.LISTS
+                if (picking && !canTake) return@forEach
+                if (!picking && list.isEmpty() && f != LFilter.ALL && f != filter && f != LFilter.LISTS) return@forEach
                 CategoryCard(
-                    f, if (f == LFilter.LISTS) "${playlists.size} قايمة" else "${list.size} • ${formatBytes(list.sumOf { it.size })}",
-                    selected = filter == f,
-                ) { filter = f; openList = null; selection = emptySet() }
+                    f.label, if (f == LFilter.LISTS) "${playlists.size} قايمة" else "${list.size} • ${formatBytes(list.sumOf { it.size })}",
+                    Color(f.color), builtinIcon(f), selected = !picking && customOpen == null && filter == f, target = picking,
+                    onClick = { if (picking) assignTo(f.name, f.label) else { filter = f; customOpen = null; openList = null } },
+                )
             }
+            customCats.forEach { cc ->
+                val list = visible.filter { catOf(it) == "c:${cc.id}" }
+                CategoryCard(
+                    cc.name, "${list.size} • ${formatBytes(list.sumOf { it.size })}",
+                    Color(FOLDER_COLORS.getOrElse(cc.color) { FOLDER_COLORS[0] }), CUSTOM_ICONS.getOrElse(cc.icon) { CUSTOM_ICONS[0] },
+                    selected = !picking && customOpen == cc.id, target = picking,
+                    onClick = { if (picking) assignTo("c:${cc.id}", cc.name) else { customOpen = cc.id; openList = null } },
+                    onLongClick = { editCat = cc },
+                )
+            }
+            NewCategoryCard { newCat = true }
         }
+        if (selection.isNotEmpty()) Text(
+            "دوس على أي تصنيف فوق عشان تنقل الملفات المتحددة ليه",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        )
 
-        if (filter == LFilter.ALL && current.isNotEmpty()) Breadcrumbs(current) { current = it }
+        if (customOpen == null && filter == LFilter.ALL && current.isNotEmpty()) Breadcrumbs(current) { current = it }
 
         when {
-            filter == LFilter.LISTS -> PlaylistsView(playlists, openList, onOpen = { openList = it }, onFile = { f, l -> open(f, l) }, onMenu = { menuFor = it })
+            customOpen == null && filter == LFilter.LISTS -> PlaylistsView(playlists, openList, onOpen = { openList = it }, onFile = { f, l -> open(f, l) }, onMenu = { menuFor = it })
             shown.isEmpty() && subFolders.isEmpty() -> EmptyLibrary(filter, inFolder = current.isNotEmpty())
             else -> LazyVerticalGrid(
                 columns = GridCells.Fixed(if (filter == LFilter.VIDEO) 2 else 1),
@@ -349,7 +387,28 @@ fun LibraryScreen() {
         }
     }
 
-    menuFor?.let { f -> FileActions(f, onMove = { moving = listOf(f) }, onZip = { zipping = listOf(f) }) { menuFor = null } }
+    menuFor?.let { f -> FileActions(f, onMove = { moving = listOf(f) }, onZip = { zipping = listOf(f) }, onCategory = { catFor = listOf(f) }) { menuFor = null } }
+    catFor?.let { l ->
+        CategoryPicker(
+            current = assigned[l.first().path],
+            builtins = LFilter.entries.filter { it != LFilter.ALL && it != LFilter.FAV && it != LFilter.LISTS }.map { Triple(it.name, it.label, Color(it.color)) },
+            custom = customCats,
+            onDismiss = { catFor = null },
+            onNew = { newCat = true },
+        ) { cat, label ->
+            Library.setCategory(l, cat); catFor = null; selection = emptySet()
+            Toast.makeText(ctx, if (cat == null) "رجع لتصنيفه التلقائي" else "اتنقل لـ«$label»", Toast.LENGTH_SHORT).show()
+        }
+    }
+    if (newCat) CustomCategoryDialog(null, onDismiss = { newCat = false }) { name, color, icon ->
+        val c = Library.addCustom(name, color, icon); newCat = false
+        catFor?.let { l -> Library.setCategory(l, "c:${c.id}"); catFor = null; selection = emptySet() }
+    }
+    editCat?.let { cc ->
+        CustomCategoryDialog(cc, onDismiss = { editCat = null }, onDelete = { Library.deleteCustom(cc.id); if (customOpen == cc.id) customOpen = null; editCat = null }) { name, color, icon ->
+            Library.editCustom(cc.copy(name = name.trim(), color = color, icon = icon)); editCat = null
+        }
+    }
     folderMenu?.let { d -> FolderActions(d, meta[d.rel] ?: FolderMeta(), "dir:" + d.rel in pins) { folderMenu = null } }
     if (newFolder) NameDialog("مجلد جديد", "") { name ->
         newFolder = false
@@ -557,7 +616,7 @@ private fun PlaylistsView(lists: List<Playlist>, open: Playlist?, onOpen: (Playl
 // ============================================================ actions on one file
 
 @Composable
-private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit = {}, onDismiss: () -> Unit) {
+private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit = {}, onCategory: () -> Unit = {}, onDismiss: () -> Unit) {
     val pins by Library.pinned.collectAsState()
     var tone by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
@@ -576,7 +635,7 @@ private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit =
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
+        Column(Modifier.fillMaxWidth().sheetBody().padding(bottom = 20.dp)) {
             Text(f.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 20.dp))
             Text(formatBytes(f.size), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp))
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -594,6 +653,7 @@ private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit =
                 onDismiss()
             }
             Action(Icons.AutoMirrored.Filled.DriveFileMove, "احفظ في مكان تختاره…") { saveAs.launch(f.name) }
+            Action(Icons.Filled.Category, "حطه في تصنيف…") { onDismiss(); onCategory() }
             Action(Icons.Filled.Folder, "انقل لمجلد") { onDismiss(); onMove() }
             Action(Icons.Filled.ContentCopy, "اعمل نسخة") { runCatching { Library.copy(f) }.onSuccess { toast("اتعمل نسخة") }; onDismiss() }
             Action(Icons.Filled.FolderZip, "اضغطه (zip)") { onDismiss(); onZip() }
@@ -698,35 +758,50 @@ object LibraryTabState {
 }
 
 
+private fun builtinIcon(f: LFilter) = when (f) {
+    LFilter.ALL -> Icons.Filled.Folder
+    LFilter.VIDEO -> Icons.Filled.VideoLibrary
+    LFilter.AUDIO -> Icons.Filled.LibraryMusic
+    LFilter.NOMUSIC -> Icons.Filled.MusicOff
+    LFilter.LONG -> Icons.AutoMirrored.Filled.MenuBook
+    LFilter.FAV -> Icons.Filled.Favorite
+    LFilter.LISTS -> Icons.AutoMirrored.Filled.QueueMusic
+    LFilter.IMAGE -> Icons.Filled.PhotoLibrary
+    LFilter.OTHER -> Icons.Filled.Description
+}
+
 @Composable
-private fun CategoryCard(f: LFilter, sub: String, selected: Boolean, onClick: () -> Unit) {
-    val c = Color(f.color)
-    val icon = when (f) {
-        LFilter.ALL -> Icons.Filled.Folder
-        LFilter.VIDEO -> Icons.Filled.VideoLibrary
-        LFilter.AUDIO -> Icons.Filled.LibraryMusic
-        LFilter.NOMUSIC -> Icons.Filled.MusicOff
-        LFilter.LONG -> Icons.AutoMirrored.Filled.MenuBook
-        LFilter.FAV -> Icons.Filled.Favorite
-        LFilter.LISTS -> Icons.AutoMirrored.Filled.QueueMusic
-        LFilter.IMAGE -> Icons.Filled.PhotoLibrary
-        LFilter.OTHER -> Icons.Filled.Description
-    }
+private fun CategoryCard(
+    label: String, sub: String, c: Color, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean, target: Boolean = false, onClick: () -> Unit, onLongClick: (() -> Unit)? = null,
+) {
     Surface(
-        onClick = onClick,
         shape = RoundedCornerShape(20.dp),
-        color = if (selected) c.copy(alpha = 0.20f) else MaterialTheme.colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) c else MaterialTheme.colorScheme.surfaceContainerHighest),
-        modifier = Modifier.width(120.dp).animateContentSize(),
+        color = if (selected || target) c.copy(alpha = 0.20f) else MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(if (selected || target) 1.5.dp else 1.dp, if (selected || target) c else MaterialTheme.colorScheme.surfaceContainerHighest),
+        modifier = Modifier.width(120.dp).clip(RoundedCornerShape(20.dp)).combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(c.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = c, modifier = Modifier.size(21.dp))
+                Icon(if (target) Icons.Filled.AddCircle else icon, null, tint = c, modifier = Modifier.size(21.dp))
             }
             Column {
-                Text(f.label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                Text(label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (target) "ابعتهم هنا" else sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
         }
+    }
+}
+
+@Composable
+private fun NewCategoryCard(onClick: () -> Unit) {
+    Column(
+        Modifier.width(96.dp).height(104.dp).clip(RoundedCornerShape(20.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp)).clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(6.dp))
+        Text("تصنيف جديد", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

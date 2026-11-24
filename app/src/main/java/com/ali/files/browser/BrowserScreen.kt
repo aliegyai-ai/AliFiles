@@ -2,6 +2,7 @@
 
 package com.ali.files.browser
 
+import com.ali.files.ui.sheetBody
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -475,7 +476,7 @@ private fun AdSheet(tab: BrowserTab?, onDismiss: () -> Unit) {
     var siteAllowed by remember { mutableStateOf(host?.let { SiteAllow.isAllowed(it) } ?: false) }
     val on = AppSettings.adBlock.value
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = scheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().sheetBody().padding(horizontal = 18.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(scheme.primary.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.Shield, null, tint = scheme.primary)
@@ -551,7 +552,7 @@ private fun MenuSheet(
     fun act(f: () -> Unit) { onDismiss(); f() }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = scheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 18.dp)) {
+        Column(Modifier.fillMaxWidth().sheetBody().padding(horizontal = 14.dp).padding(bottom = 18.dp)) {
             // quick row
             if (page != null) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -1058,7 +1059,7 @@ private fun TabsSheet(c: BrowserController, onDismiss: () -> Unit) {
         }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp).navigationBarsPadding(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1136,7 +1137,7 @@ private fun MediaSheet(c: BrowserController, tab: BrowserTab, onDismiss: () -> U
         if (tab.media.isEmpty()) {
             Text("لسه مفيش وسائط", Modifier.padding(24.dp).fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        LazyColumn(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 24.dp)) {
             items(tab.media.toList(), key = { it.url }) { m ->
                 ListItem(
                     overlineContent = { Text(m.kind) },
@@ -1175,7 +1176,7 @@ private fun LibrarySheet(c: BrowserController, onDismiss: () -> Unit) {
         if (page == 1 && c.history.isNotEmpty()) {
             TextButton(onClick = { c.clearHistory() }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("امسح السجل") }
         }
-        LazyColumn(Modifier.fillMaxWidth().height(420.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().height(420.dp).navigationBarsPadding()) {
             if (page == 0) {
                 items(c.bookmarks.toList(), key = { "b" + it.url }) { b ->
                     ListItem(

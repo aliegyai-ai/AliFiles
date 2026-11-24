@@ -2,6 +2,7 @@
 
 package com.ali.files.library
 
+import com.ali.files.ui.sheetBody
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -32,6 +33,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
@@ -97,7 +107,7 @@ fun unlockWithPhoneLock(c: Context, title: String, onOk: () -> Unit) {
 @Composable
 internal fun SelectionBar(
     count: Int, onClose: () -> Unit, onAll: () -> Unit, onMove: () -> Unit, onZip: () -> Unit,
-    onCopy: () -> Unit, onGallery: () -> Unit, onVault: () -> Unit, onDelete: () -> Unit,
+    onCopy: () -> Unit, onGallery: () -> Unit, onVault: () -> Unit, onDelete: () -> Unit, onCategory: () -> Unit = {},
 ) {
     val gold = MaterialTheme.colorScheme.primary
     Surface(color = gold.copy(alpha = 0.12f), modifier = Modifier.fillMaxWidth()) {
@@ -108,6 +118,7 @@ internal fun SelectionBar(
                 IconButton(onClick = onAll) { Icon(Icons.Filled.SelectAll, "حدد الكل") }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                BarAction(Icons.Filled.Category, "تصنيف", onCategory)
                 BarAction(Icons.AutoMirrored.Filled.DriveFileMove, "انقل", onMove)
                 BarAction(Icons.Filled.ContentCopy, "نسخة", onCopy)
                 BarAction(Icons.Filled.PhotoLibrary, "الاستديو", onGallery)
@@ -178,7 +189,7 @@ internal fun FolderActions(d: LibFolder, meta: FolderMeta, pinned: Boolean, onDi
     var confirm by remember { mutableStateOf(false) }
     fun toast(t: String) = Toast.makeText(ctx, t, Toast.LENGTH_SHORT).show()
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
+        Column(Modifier.fillMaxWidth().sheetBody().padding(bottom = 20.dp)) {
             Text(d.name, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
             Text("${d.count} ملف • ${formatBytes(d.size)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -262,7 +273,7 @@ internal fun TrashSheet(onDismiss: () -> Unit) {
     val trash by Library.trash.collectAsState()
     var confirmEmpty by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 20.dp)) {
+        Column(Modifier.fillMaxWidth().sheetBody().padding(horizontal = 16.dp).padding(bottom = 20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("سلة المهملات", fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -333,5 +344,79 @@ internal fun ToneDialog(f: LibFile, onDone: () -> Unit) {
             }
         },
         confirmButton = { TextButton(onClick = onDone) { Text("إلغاء") } },
+    )
+}
+
+
+/** Icons a category you make can have. */
+val CUSTOM_ICONS = listOf(
+    Icons.Filled.LibraryMusic, Icons.Filled.Mic, Icons.Filled.Headphones, Icons.Filled.Movie,
+    Icons.Filled.School, Icons.Filled.Star, Icons.Filled.ChildCare, Icons.Filled.Favorite,
+)
+
+/** «حطه في تصنيف…» */
+@Composable
+internal fun CategoryPicker(
+    current: String?, builtins: List<Triple<String, String, Color>>, custom: List<CustomCat>,
+    onDismiss: () -> Unit, onNew: () -> Unit, onPick: (String?, String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("حطه في تصنيف") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(builtins) { (key, label, color) -> PickRow(label, color, key == current) { onPick(key, label) } }
+                items(custom) { c -> PickRow(c.name, Color(FOLDER_COLORS.getOrElse(c.color) { FOLDER_COLORS[0] }), "c:${c.id}" == current) { onPick("c:${c.id}", c.name) } }
+                item { TextButton(onClick = onNew) { Text("+ تصنيف جديد") } }
+                if (current != null) item { TextButton(onClick = { onPick(null, "") }) { Text("رجّعه لتصنيفه التلقائي") } }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
+    )
+}
+
+@Composable
+private fun PickRow(label: String, color: Color, on: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(14.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.width(12.dp))
+        Text(label, modifier = Modifier.weight(1f), fontWeight = if (on) FontWeight.Bold else FontWeight.Normal)
+        if (on) Text("✓", color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/** Make (or edit) a category: name, color, icon. */
+@Composable
+internal fun CustomCategoryDialog(existing: CustomCat?, onDismiss: () -> Unit, onDelete: (() -> Unit)? = null, onSave: (String, Int, Int) -> Unit) {
+    var name by remember { mutableStateOf(existing?.name ?: "") }
+    var color by remember { mutableStateOf(existing?.color ?: 2) }
+    var icon by remember { mutableStateOf(existing?.icon ?: 0) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (existing == null) "تصنيف جديد" else "عدّل التصنيف") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                androidx.compose.material3.OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, placeholder = { Text("مثلاً: أناشيد") })
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FOLDER_COLORS.forEachIndexed { i, c ->
+                        Box(Modifier.size(32.dp).clip(CircleShape).background(Color(c)).clickable { color = i }, contentAlignment = Alignment.Center) {
+                            if (color == i) Text("✓", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CUSTOM_ICONS.forEachIndexed { i, ic ->
+                        val c = Color(FOLDER_COLORS.getOrElse(color) { FOLDER_COLORS[0] })
+                        Box(
+                            Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(if (icon == i) c.copy(alpha = 0.25f) else Color.Transparent).clickable { icon = i },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(ic, null, tint = c) }
+                    }
+                }
+                if (onDelete != null) TextButton(onClick = onDelete) { Text("امسح التصنيف (الملفات مش هتتمسح)", color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { onSave(name, color, icon) }) { Text("احفظ") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
 }
