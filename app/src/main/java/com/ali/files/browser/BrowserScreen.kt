@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -583,6 +584,20 @@ private fun MenuSheet(
                     add(MenuItem("بحث في الصفحة", Icons.Filled.Search) { act(onFind) })
                     add(MenuItem("وسائط الصفحة", Icons.Filled.VideoLibrary) { act(onMedia) })
                     add(MenuItem("وضع الكمبيوتر", Icons.Filled.Computer, selected = page.desktop.value) { act { c.setDesktop(page, !page.desktop.value) } })
+                    page.pageHost?.let { host ->
+                        if (!page.incognito) add(MenuItem("انسى الموقع ده", Icons.Filled.DeleteSweep) {
+                            act { ForgetSites.forget(host); page.webView?.reload(); Toast.makeText(ctx, "${ForgetSites.siteOf(host)} نسي زيارتك", Toast.LENGTH_SHORT).show() }
+                        })
+                        if (AppSettings.forgetMode.value && !page.incognito) {
+                            val kept = ForgetSites.isKept(host)
+                            add(MenuItem(if (kept) "مش لازم يفتكرني" else "خلّيه فاكرني", Icons.Filled.Favorite, selected = kept) {
+                                act {
+                                    ForgetSites.toggleKeep(host)
+                                    Toast.makeText(ctx, if (!kept) "${ForgetSites.siteOf(host)} هيفضل فاكرك" else "${ForgetSites.siteOf(host)} هينسى زيارتك", Toast.LENGTH_SHORT).show()
+                                }
+                            })
+                        }
+                    }
                 }
                 add(MenuItem("المكتبة", Icons.Filled.VideoLibrary) { act { onOpenApp(UiState.TAB_DOWNLOADS) } })
                 add(MenuItem("الخزنة", Icons.Filled.Lock) { act { onOpenApp(UiState.TAB_VAULT) } })
