@@ -48,7 +48,7 @@ object ForgetSites {
     fun forgetAll(c: BrowserController) {
         val hosts = HashSet<String>()
         c.history.forEach { e -> runCatching { Uri.parse(e.url).host }.getOrNull()?.let { hosts += it } }
-        c.tabs.filter { !it.incognito }.forEach { t -> runCatching { Uri.parse(t.url.value).host }.getOrNull()?.let { hosts += it } }
+        c.tabs.forEach { t -> runCatching { Uri.parse(t.url.value).host }.getOrNull()?.let { hosts += it } }
         WebStorage.getInstance().getOrigins { map ->
             val all = HashSet(hosts)
             (map as? Map<*, *>)?.keys?.forEach { k -> runCatching { Uri.parse(k.toString()).host }.getOrNull()?.let { all += it } }

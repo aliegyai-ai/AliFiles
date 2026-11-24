@@ -137,7 +137,7 @@ fun LibFile.toTrack(): Track = Track(
 
 /** The «المكتبة» tab: the library (what you downloaded) + the downloads list. */
 @Composable
-fun LibraryTab(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Unit) {
+fun LibraryTab(onRequest: (DownloadRequest) -> Unit) {
     var page by LibraryTabState.page
     Column(Modifier.fillMaxSize()) {
         // big Kufic title + a two-way switch (library / downloads)
@@ -162,7 +162,7 @@ fun LibraryTab(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Unit) {
                 }
             }
         }
-        if (page == 0) LibraryScreen() else DownloadsScreen(onRequest, onOpenVault)
+        if (page == 0) LibraryScreen() else DownloadsScreen(onRequest)
     }
 }
 
@@ -288,10 +288,6 @@ fun LibraryScreen() {
             onGallery = {
                 val l = selected; selection = emptySet()
                 scope.launch { var n = 0; l.forEach { f -> if (runCatching { Library.saveToGallery(f) }.isSuccess) n++ }; toast("اتحفظ $n في الاستديو") }
-            },
-            onVault = {
-                val l = selected; selection = emptySet()
-                scope.launch { l.forEach { runCatching { Library.moveToVault(it) } }; toast("اتنقلوا للخزنة 🔒") }
             },
             onDelete = { confirmDeleteMany = selected },
             onCategory = { catFor = selected },
@@ -677,10 +673,6 @@ private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit =
                 Action(Icons.AutoMirrored.Filled.PlaylistAdd, "ضيف لقايمة تشغيل") { pickList = true }
             }
             Action(Icons.Filled.DriveFileRenameOutline, "إعادة تسمية") { renaming = true }
-            Action(Icons.Filled.Lock, "انقله للخزنة 🔒") {
-                scope.launch { runCatching { Library.moveToVault(f) }.onSuccess { toast("اتنقل للخزنة") }.onFailure { toast(it.message ?: "تعذر النقل") } }
-                onDismiss()
-            }
             Action(Icons.Filled.Delete, "امسح", danger = true) { confirmDelete = true }
         }
     }

@@ -23,7 +23,6 @@ class UiState {
     companion object {
         const val TAB_BROWSER = 0
         const val TAB_DOWNLOADS = 1
-        const val TAB_VAULT = 2
         const val TAB_SETTINGS = 3
     }
 }

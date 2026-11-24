@@ -56,8 +56,6 @@ import com.ali.files.download.DownloadsScreen
 import com.ali.files.download.VideoDialog
 import com.ali.files.download.VideoExtractor
 import com.ali.files.download.VideoRequest
-import com.ali.files.vault.ImportSharedDialog
-import com.ali.files.vault.VaultScreen
 import kotlinx.coroutines.launch
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -148,9 +146,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                         if (MediaSniffer.kind(r.url) == null && !Downloader.isHlsUrl(r.url, null)) ui.videoRequest.value = VideoRequest(r.url)
                         else ui.pendingDownload.value = r
                     },
-                    onOpenVault = { ui.tab.intValue = UiState.TAB_VAULT },
                 )
-                UiState.TAB_VAULT -> VaultScreen()
                 else -> SettingsScreen(browser, ui)
             }
             }
@@ -169,6 +165,34 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     val anyActive = downloads.any { it.active }
     LaunchedEffect(anyActive) { if (anyActive) (ctx as? android.app.Activity)?.let { com.ali.files.util.KeepAwake.askBatteryExemption(it) } }
 
+    // ---------------------------------------------- the vault was removed: move what was in it to the library (once)
+    if (com.ali.files.vault.Vault.waiting.value > 0) {
+        var moving by remember { mutableStateOf(false) }
+        androidx.compose.material3.AlertDialog(
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+            onDismissRequest = {},
+            title = { Text("الخزنة اتشالت من التطبيق") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    Text("فيها ${com.ali.files.vault.Vault.waiting.value} ملف. هنفكّ تشفيرهم ونحطهم في المكتبة في مجلد «من الخزنة».")
+                    if (moving) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(enabled = !moving, onClick = {
+                    com.ali.files.library.unlockWithPhoneLock(ctx, "انقل ملفات الخزنة") {
+                        moving = true
+                        scope.launch {
+                            val n = com.ali.files.vault.Vault.moveAllToLibrary()
+                            moving = false
+                            android.widget.Toast.makeText(ctx, "اتنقل $n ملف للمكتبة ← «من الخزنة»", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }) { Text(if (moving) "بينقل…" else "انقلهم") }
+            },
+        )
+    }
+
     // ---------------------------------------------- «شوف الجديد» after an update
     var whatsNew by remember { mutableStateOf(com.ali.files.update.AutoUpdate.whatsNew(ctx)) }
     whatsNew?.let { (name, notes) ->
@@ -184,30 +208,16 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         )
     }
 
-    // ---------------------------------------------- torrents: pick the files
-    com.ali.files.torrent.TorrentInbox.pending.value?.let { (src, priv) ->
-        com.ali.files.torrent.TorrentAddSheet(
-            source = src, private = priv,
-            onDismiss = { com.ali.files.torrent.TorrentInbox.pending.value = null },
-            onStarted = {
-                com.ali.files.torrent.TorrentInbox.pending.value = null
-                com.ali.files.torrent.TorrentInbox.showTorrents.value = true
-                com.ali.files.library.LibraryTabState.page.intValue = 1
-                ui.tab.intValue = UiState.TAB_DOWNLOADS
-            },
-        )
-    }
-
     // ---------------------------------------------- download confirmation
     ui.pendingDownload.value?.let { req ->
         DownloadDialog(
             req = req,
             onDismiss = { ui.pendingDownload.value = null },
-            onStarted = { toVault ->
+            onStarted = {
                 ui.pendingDownload.value = null
                 scope.launch {
                     val r = ui.snackbar.showSnackbar(
-                        if (toVault) "بدأ التحميل للخزنة 🔒" else "بدأ التحميل",
+                        "بدأ التحميل",
                         actionLabel = "عرض", duration = SnackbarDuration.Short,
                     )
                     if (r == SnackbarResult.ActionPerformed) ui.tab.intValue = UiState.TAB_DOWNLOADS
@@ -221,10 +231,10 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         VideoDialog(
             req = vr,
             onDismiss = { ui.videoRequest.value = null },
-            onStarted = { toVault ->
+            onStarted = {
                 ui.videoRequest.value = null
                 ui.tab.intValue = UiState.TAB_DOWNLOADS
-                scope.launch { ui.snackbar.showSnackbar(if (toVault) "بدأ تحميل الفيديو للخزنة 🔒" else "بدأ تحميل الفيديو") }
+                scope.launch { ui.snackbar.showSnackbar("بدأ تحميل الفيديو") }
             },
             onFallback = { r -> ui.videoRequest.value = null; ui.pendingDownload.value = r },
         )
@@ -237,7 +247,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
 
     // ---------------------------------------------- files shared into the app
     if (ui.sharedUris.value.isNotEmpty()) {
-        ImportSharedDialog(ui.sharedUris.value) { ui.sharedUris.value = emptyList() }
+        com.ali.files.library.ImportSharedDialog(ui.sharedUris.value) { ui.sharedUris.value = emptyList() }
     }
 
     // ---------------------------------------------- link found in clipboard
@@ -284,7 +294,6 @@ private fun FloatingNav(tab: Int, activeDownloads: Int, onPick: (Int) -> Unit) {
     val items = listOf(
         Triple(UiState.TAB_BROWSER, "المتصفح", Icons.Filled.Public),
         Triple(UiState.TAB_DOWNLOADS, "المكتبة", Icons.Filled.VideoLibrary),
-        Triple(UiState.TAB_VAULT, "الخزنة", Icons.Filled.Lock),
         Triple(UiState.TAB_SETTINGS, "الإعدادات", Icons.Filled.Settings),
     )
     androidx.compose.material3.Surface(

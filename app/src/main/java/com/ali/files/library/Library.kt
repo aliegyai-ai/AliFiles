@@ -11,7 +11,6 @@ import com.ali.files.util.FileStore
 import com.ali.files.util.kindOf
 import com.ali.files.util.mimeOf
 import com.ali.files.util.sanitizeFileName
-import com.ali.files.vault.Vault
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -438,11 +437,12 @@ object Library {
         out.use { o -> f.file.inputStream().use { it.copyTo(o, 256 * 1024) } }
     }
 
-    suspend fun moveToVault(f: LibFile) = withContext(Dispatchers.IO) {
-        Vault.importFile(f.file, f.name, f.mime)
-        f.file.delete()
-        forget(f.path)
-        refresh()
+    /** A file from another app («share to») → copied into the library. */
+    suspend fun importUri(u: Uri): File = withContext(Dispatchers.IO) {
+        val name = com.ali.files.util.FileStore.displayName(app, u).ifBlank { "file" }
+        val tmp = File(app.cacheDir, "import_" + System.nanoTime()).apply { parentFile?.mkdirs() }
+        app.contentResolver.openInputStream(u)!!.use { i -> tmp.outputStream().use { i.copyTo(it, 256 * 1024) } }
+        add(tmp, name)
     }
 
     /** to the trash (can be restored for 30 days) */

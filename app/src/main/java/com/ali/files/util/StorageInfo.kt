@@ -6,12 +6,12 @@ import java.io.File
 
 /** What the app keeps on the phone, how big each part is, and cleaning the parts that are safe to clean. */
 object StorageInfo {
-    enum class Kind { LIBRARY, VAULT, ENGINE, MODEL, CACHE, WEB_CACHE, PARTIAL, SEPARATE }
+    enum class Kind { LIBRARY, ENGINE, MODEL, CACHE, WEB_CACHE, PARTIAL, SEPARATE }
 
     data class Item(val kind: Kind, val title: String, val sub: String, val bytes: Long, val clearable: Boolean)
 
     /** cache folders the app can always throw away (they're rebuilt when needed) */
-    private fun cacheDirs(c: Context) = listOf("ytdlp-cache", "update", "vault_open", "image_cache", "tmp")
+    private fun cacheDirs(c: Context) = listOf("ytdlp-cache", "update", "image_cache", "tmp")
         .map { File(c.cacheDir, it) } +
         (c.cacheDir.listFiles()?.filter { it.isFile } ?: emptyList())
 
@@ -31,7 +31,6 @@ object StorageInfo {
         val cache = c.cacheDir.listFiles()?.filter { it.name !in setOf("WebView", "libthumbs") }?.sumOf { size(it) } ?: 0
         return listOf(
             Item(Kind.LIBRARY, "المكتبة", "الفيديوهات والأغاني اللي حمّلتها — بتتمسح من المكتبة نفسها", size(File(c.filesDir, "library")) + size(File(c.cacheDir, "libthumbs")), false),
-            Item(Kind.VAULT, "الخزنة", "ملفاتك المشفّرة — بتتمسح من جوه الخزنة", size(File(c.filesDir, "vault")), false),
             Item(Kind.MODEL, "موديل عزل الصوت", "بيتنزل تاني لوحده لو احتجته", size(File(c.filesDir, "models")), !separating()),
             Item(Kind.SEPARATE, "ملفات عزل الصوت المؤقتة", "بقايا عمليات العزل", size(File(c.filesDir, "separate")), !separating()),
             Item(Kind.PARTIAL, "بقايا تحميلات", "ملفات من تحميلات خلصت أو اتمسحت", size(File(ext, "partial")), true),

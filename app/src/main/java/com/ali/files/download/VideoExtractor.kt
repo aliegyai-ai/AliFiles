@@ -54,8 +54,6 @@ data class VideoRequest(
     /** what the page already tells us — shown at once while the qualities load */
     val title: String? = null,
     val thumbnail: String? = null,
-    /** from a private tab → saved in the vault by default */
-    val private: Boolean = false,
 )
 
 /**
@@ -146,8 +144,6 @@ object VideoExtractor {
     /** yt-dlp keeps YouTube's player code and solved challenges here, so the next video is much faster. */
     private fun cacheOptions(req: YoutubeDLRequest) {
         req.addOption("--cache-dir", File(app.cacheDir, "ytdlp-cache").apply { mkdirs() }.absolutePath)
-        // through Tor while it's on
-        com.ali.files.browser.TorManager.ytdlpProxy()?.let { req.addOption("--proxy", it) }
     }
 
     // ------------------------------------------------------------ remembering / reading ahead
@@ -249,7 +245,9 @@ object VideoExtractor {
     fun playlistOf(url: String): String? {
         val u = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return null
         val list = u.getQueryParameter("list") ?: return null
-        if (list.startsWith("RD") || list == "WL" || list == "LL") return null // YouTube mixes: endless
+        if (list == "WL" || list == "LL") return null // «شاهد لاحقاً» / «أعجبني»: need the login inside yt-dlp
+        // YouTube mixes (RD…) have no list page: read them from the video itself (capped, they never end)
+        if (list.startsWith("RD")) return url
         return "https://www.youtube.com/playlist?list=$list"
     }
 
@@ -258,10 +256,12 @@ object VideoExtractor {
         ready.await()
         val channel = isPlaylistOnly(url) && runCatching { android.net.Uri.parse(url).path ?: "" }.getOrDefault("").let { it.startsWith("/@") || it.startsWith("/channel/") || it.startsWith("/c/") || it.startsWith("/user/") }
         val target = if (channel && !url.trimEnd('/').endsWith("/videos")) url.trimEnd('/') + "/videos" else url
+        val mix = runCatching { android.net.Uri.parse(url).getQueryParameter("list") }.getOrNull()?.startsWith("RD") == true
         val req = YoutubeDLRequest(target)
         req.addOption("--flat-playlist")
+        if (mix) req.addOption("--yes-playlist")
         req.addOption("-J")
-        req.addOption("--playlist-end", (if (channel) minOf(max, 30) else max).toString())
+        req.addOption("--playlist-end", (if (channel) minOf(max, 30) else if (mix) minOf(max, 50) else max).toString())
         cacheOptions(req)
         headerOptions(req, headers)
         val out = try { YoutubeDL.getInstance().execute(req).out } catch (e: Exception) { runCatching { update() }; YoutubeDL.getInstance().execute(req).out }
@@ -280,7 +280,7 @@ object VideoExtractor {
                 ?: if ("youtube" in target && id.isNotBlank()) "https://i.ytimg.com/vi/$id/mqdefault.jpg" else null
             PlaylistEntry(link, title, e.optDouble("duration", 0.0).toLong(), thumb)
         }
-        PlaylistInfo(j.optString("title").ifBlank { "قايمة تشغيل" }, entries)
+        PlaylistInfo(j.optString("title").ifBlank { if (mix) "قايمة مختلطة" else "قايمة تشغيل" }, entries)
     }
 
     private fun headerOptions(req: YoutubeDLRequest, headers: Map<String, String>) {

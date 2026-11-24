@@ -107,7 +107,7 @@ fun unlockWithPhoneLock(c: Context, title: String, onOk: () -> Unit) {
 @Composable
 internal fun SelectionBar(
     count: Int, onClose: () -> Unit, onAll: () -> Unit, onMove: () -> Unit, onZip: () -> Unit,
-    onCopy: () -> Unit, onGallery: () -> Unit, onVault: () -> Unit, onDelete: () -> Unit, onCategory: () -> Unit = {},
+    onCopy: () -> Unit, onGallery: () -> Unit, onDelete: () -> Unit, onCategory: () -> Unit = {},
 ) {
     val gold = MaterialTheme.colorScheme.primary
     Surface(color = gold.copy(alpha = 0.12f), modifier = Modifier.fillMaxWidth()) {
@@ -123,7 +123,6 @@ internal fun SelectionBar(
                 BarAction(Icons.Filled.ContentCopy, "نسخة", onCopy)
                 BarAction(Icons.Filled.PhotoLibrary, "الاستديو", onGallery)
                 BarAction(Icons.Filled.FolderZip, "اضغط", onZip)
-                BarAction(Icons.Filled.Lock, "الخزنة", onVault)
                 BarAction(Icons.Filled.Delete, "امسح", onDelete, danger = true)
             }
         }
@@ -477,5 +476,35 @@ internal fun ShrinkDialog(f: LibFile, onDone: () -> Unit) {
             }) { Text(if (working) "بيشتغل…" else "صغّره") }
         },
         dismissButton = { TextButton(enabled = !working, onClick = onDone) { Text("إلغاء") } },
+    )
+}
+
+
+/** Files shared into the app from another app («Share → ملفات علي»): copied into the library. */
+@Composable
+fun ImportSharedDialog(uris: List<android.net.Uri>, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var working by remember { mutableStateOf(false) }
+    AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        onDismissRequest = { if (!working) onDismiss() },
+        title = { Text("تضيف ${uris.size} ملف للمكتبة؟") },
+        text = {
+            if (working) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+            else Text("هتتنسخ جوه التطبيق، والأصلية هتفضل مكانها.")
+        },
+        confirmButton = {
+            TextButton(enabled = !working, onClick = {
+                working = true
+                scope.launch {
+                    var ok = 0
+                    uris.forEach { u -> runCatching { Library.importUri(u) }.onSuccess { ok++ } }
+                    Toast.makeText(ctx, "اتضاف $ok ملف للمكتبة", Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                }
+            }) { Text("ضيفهم") }
+        },
+        dismissButton = { TextButton(enabled = !working, onClick = onDismiss) { Text("إلغاء") } },
     )
 }

@@ -85,19 +85,18 @@ private const val AUDIO = -1
 fun VideoDialog(
     req: VideoRequest,
     onDismiss: () -> Unit,
-    onStarted: (toVault: Boolean) -> Unit,
+    onStarted: () -> Unit,
     onFallback: (DownloadRequest) -> Unit,
 ) {
     // a whole playlist / channel → its own sheet
     var asList by remember(req) { mutableStateOf(if (VideoExtractor.isPlaylistOnly(req.url)) req.url else null) }
     asList?.let { listUrl ->
-        PlaylistSheet(listUrl, req.headers, req.private, onDismiss = onDismiss, onStarted = onStarted)
+        PlaylistSheet(listUrl, req.headers, onDismiss = onDismiss, onStarted = onStarted)
         return
     }
     val inList = remember(req) { VideoExtractor.playlistOf(req.url) }
     var state by remember(req) { mutableStateOf<Load>(Load.Loading) }
     var choice by remember(req) { mutableStateOf<Int?>(null) } // AUDIO or a height
-    var toVault by remember(req) { mutableStateOf(req.private || AppSettings.saveToVault.value) }
     var audioQ by remember(req) { mutableStateOf(runCatching { AudioQ.valueOf(AppSettings.audioQuality.value) }.getOrDefault(AudioQ.HIGH)) }
     var audioFmt by remember(req) { mutableStateOf(AppSettings.audioFormat.value) }
 
@@ -240,21 +239,14 @@ fun VideoDialog(
                         }
                     }
 
-                    // where to save
-                    Text("الحفظ في", fontSize = 13.sp, color = scheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SaveChoice("المكتبة", Icons.Filled.Folder, !toVault, Modifier.weight(1f)) { toVault = false }
-                        SaveChoice("الخزنة", Icons.Filled.Lock, toVault, Modifier.weight(1f)) { toVault = true }
-                    }
-
                     Spacer(Modifier.height(4.dp))
                     Button(
                         enabled = choice != null,
                         onClick = {
                             val c = choice ?: return@Button
                             if (c == AUDIO) { AppSettings.setAudioQuality(audioQ.name); AppSettings.setAudioFormat(audioFmt) }
-                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, toVault, if (c == AUDIO) audioQ else null, audioFmt)
-                            sheet.close { onStarted(toVault) }
+                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, if (c == AUDIO) audioQ else null, audioFmt)
+                            sheet.close { onStarted() }
                         },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -344,23 +336,6 @@ private fun QualityCard(
     }
 }
 
-@Composable
-private fun SaveChoice(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) scheme.primary.copy(alpha = 0.16f) else scheme.surfaceContainerHigh,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) scheme.primary else scheme.outlineVariant),
-        modifier = modifier.height(46.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, Modifier.size(18.dp), tint = if (selected) scheme.primary else scheme.onSurfaceVariant)
-            Spacer(Modifier.width(6.dp))
-            Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-        }
-    }
-}
 
 @Composable
 internal fun Thumb(url: String?, modifier: Modifier) {

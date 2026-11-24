@@ -49,12 +49,12 @@ data class HistoryEntry(val title: String, val url: String, val time: Long)
 
 data class DetectedMedia(val url: String, val kind: String)
 
-data class LongPress(val url: String, val isImage: Boolean, val incognito: Boolean, val referer: String?)
+data class LongPress(val url: String, val isImage: Boolean, val referer: String?)
 
 /** A site asking for the camera / microphone / location; [answer] gets the user's choice. */
 data class SitePermission(val host: String, val kinds: List<String>, val answer: (Boolean) -> Unit)
 
-class BrowserTab(val id: Long, val incognito: Boolean) {
+class BrowserTab(val id: Long) {
     lateinit var webView: WebView
     /** the WebView wrapped in its own pull-to-refresh frame (one per tab, so switching tabs never breaks it) */
     lateinit var frame: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -129,101 +129,21 @@ class BrowserController(private val activity: Activity) {
     val current: BrowserTab? get() = tabs.firstOrNull { it.id == currentId.longValue }
     fun homeShowing() = current?.home?.value != false
 
-    // ------------------------------------------------------------ private (incognito) space
-    /** true while the user is in the private space: its own tabs, purple look, nothing saved */
-    val privateMode = mutableStateOf(false)
-    /** the tabs of the space being shown (normal or private) */
-    val visibleTabs: List<BrowserTab> get() = tabs.filter { it.incognito == privateMode.value }
-    private var lastNormalId = -1L
-    private var lastPrivateId = -1L
-
-    /** Private tabs get their own WebView profile (own cookies, storage, cache) when the phone supports it. */
-    private val profilesSupported: Boolean by lazy {
-        runCatching { androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE) }.getOrDefault(false)
+    private fun noPullRefresh(url: String?): Boolean {
+        val h = runCatching { Uri.parse(url).host }.getOrNull() ?: return false
+        return h.endsWith("youtube.com") || h.endsWith("tiktok.com") || h.endsWith("instagram.com") || h.endsWith("facebook.com")
     }
 
     /** the browser is showing just a video in a small floating window */
     val pipMode = mutableStateOf(false)
-
-    /** private tabs: http sites the user chose to open without encryption */
-    val httpAllowed = HashSet<String>()
-    /** https addresses we upgraded from http (so the error page can offer the unencrypted one) */
-    val upgraded = HashMap<String, String>()
-    /** private tabs really have their own cookies on this phone (needs a recent «Android System WebView») */
-    val privateIsolated: Boolean get() = profilesSupported
-    /** ads & trackers blocked in this private session */
-    val privateBlocked = mutableIntStateOf(0)
-    /** we opened another screen on purpose (file picker, share, another app) — not "leaving" for the private-tab lock/wipe */
+    /** we opened another screen on purpose (file picker, share, another app) */
     @Volatile var awayOnPurpose = false
-    /** when the app was left (for «wipe private tabs after N minutes») */
-    var leftAt = 0L
-
-    fun cookieManagerFor(tab: BrowserTab?): CookieManager =
-        if (tab?.incognito == true && profilesSupported)
-            runCatching { androidx.webkit.ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE).cookieManager }.getOrDefault(CookieManager.getInstance())
-        else CookieManager.getInstance()
-
-    fun enterPrivate() {
-        if (privateMode.value) return
-        current?.let { captureThumb(it); lastNormalId = it.id }
-        privateMode.value = true
-        val t = tabs.firstOrNull { it.incognito && it.id == lastPrivateId } ?: tabs.lastOrNull { it.incognito }
-        if (t != null) currentId.longValue = t.id else newTab(HOME, incognito = true)
-        barsHidden.value = false
-    }
-
-    /** Back to normal tabs; the private tabs stay open (until [closePrivate]). */
-    fun exitPrivate() {
-        if (!privateMode.value) return
-        current?.let { captureThumb(it); lastPrivateId = it.id }
-        privateMode.value = false
-        val t = tabs.firstOrNull { !it.incognito && it.id == lastNormalId } ?: tabs.lastOrNull { !it.incognito }
-        if (t != null) currentId.longValue = t.id else newTab(HOME)
-        barsHidden.value = false
-    }
-
-    /** Closes every private tab and wipes everything they left behind (cookies, storage, cache). */
-    fun closePrivate() {
-        val wasPrivate = privateMode.value
-        val hadAny = tabs.any { it.incognito }
-        TorManager.stop()
-        PrivacyShield.newSession()
-        privateBlocked.intValue = 0
-        tabs.filter { it.incognito }.forEach { t ->
-            tabs.remove(t)
-            (t.frame.parent as? ViewGroup)?.removeView(t.frame)
-            t.webView.stopLoading()
-            t.webView.clearCache(true)
-            t.webView.clearFormData()
-            t.webView.clearHistory()
-            t.webView.destroy()
-        }
-        lastPrivateId = -1L
-        if (wasPrivate) {
-            privateMode.value = false
-            val t = tabs.firstOrNull { it.id == lastNormalId } ?: tabs.lastOrNull()
-            if (t != null) {
-                currentId.longValue = t.id
-                // land on the start page, not on whatever site was open before
-                t.openingFromHome.value = false
-                t.home.value = true
-            } else newTab(HOME)
-        }
-        if (hadAny) toast("اتمسح كل حاجة من التصفح الخفي 🔥")
-        // the profile can only be deleted once its WebViews are really gone
-        main.postDelayed({ wipePrivateProfile() }, 500)
-    }
 
     /** Clears the sites' cached files (images, scripts) for the normal tabs; logins and history stay. */
     fun clearWebCache() {
-        val wv = tabs.firstOrNull { !it.incognito }?.webView
+        val wv = tabs.firstOrNull()?.webView
         if (wv != null) wv.clearCache(true)
         else runCatching { WebView(activity).apply { clearCache(true); destroy() } }
-    }
-
-    private fun wipePrivateProfile() {
-        if (!profilesSupported || tabs.any { it.incognito }) return
-        runCatching { androidx.webkit.ProfileStore.getInstance().deleteProfile(PRIVATE_PROFILE) }
     }
 
     val bookmarks = mutableStateListOf<Bookmark>()
@@ -248,8 +168,8 @@ class BrowserController(private val activity: Activity) {
     private val sessionFile get() = File(activity.filesDir, "session.json")
 
     init {
-        // anything a private session left on disk (app was killed while private tabs were open) goes first
-        wipePrivateProfile()
+        // the old private-browsing space is gone: remove what it may have left on disk
+        runCatching { if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE)) androidx.webkit.ProfileStore.getInstance().deleteProfile(PRIVATE_PROFILE) }
         runCatching { bookmarks.addAll(json.decodeFromString<List<Bookmark>>(bookmarksFile.readText())) }
         runCatching { history.addAll(json.decodeFromString<List<HistoryEntry>>(historyFile.readText())) }
         val urls = runCatching { json.decodeFromString<List<String>>(sessionFile.readText()) }.getOrDefault(emptyList())
@@ -260,25 +180,26 @@ class BrowserController(private val activity: Activity) {
 
     // ------------------------------------------------------------ tabs
 
-    fun newTab(url: String? = HOME, incognito: Boolean = false, select: Boolean = true): BrowserTab {
-        val tab = BrowserTab(nextId++, incognito)
+    fun newTab(url: String? = HOME, select: Boolean = true): BrowserTab {
+        val tab = BrowserTab(nextId++)
         tab.webView = createWebView(tab)
         tab.frame = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(activity).apply {
             addView(tab.webView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             setColorSchemeColors(0xFFD4A94F.toInt())
             setProgressBackgroundColorSchemeColor(0xFF221F19.toInt())
             setOnRefreshListener { tab.webView.reload() }
-            // pull only works when the page itself is at the very top
             // pull-to-refresh only from the top of the page itself — never while scrolling a list
             // inside the page (YouTube's playlist, comments…), which used to hijack the scroll
-            setOnChildScrollUpCallback { _, _ -> tab.webView.scrollY > 0 || tab.touchInInnerList }
+            setOnChildScrollUpCallback { _, _ ->
+                // YouTube's lists (playlist, comments) scroll inside the page and the finger reaches us
+                // before the page can say so → pull-to-refresh stole the gesture. YouTube has its own refresh.
+                tab.webView.scrollY > 0 || tab.touchInInnerList || noPullRefresh(tab.url.value)
+            }
         }
         tabs.add(tab)
         if (select || currentId.longValue < 0) {
             current?.let { captureThumb(it) }
-            if (incognito && !privateMode.value) current?.let { lastNormalId = it.id }
             currentId.longValue = tab.id
-            privateMode.value = incognito
         }
         when {
             url == null -> {}
@@ -299,7 +220,7 @@ class BrowserController(private val activity: Activity) {
     fun select(id: Long) {
         current?.let { captureThumb(it) }
         currentId.longValue = id
-        tabs.firstOrNull { it.id == id }?.let { privateMode.value = it.incognito; ensureLoaded(it) }
+        tabs.firstOrNull { it.id == id }?.let { ensureLoaded(it) }
         barsHidden.value = false
     }
 
@@ -337,29 +258,21 @@ class BrowserController(private val activity: Activity) {
         (tab.frame.parent as? ViewGroup)?.removeView(tab.frame)
         tab.webView.stopLoading()
         tab.webView.destroy()
-        val same = tabs.filter { it.incognito == tab.incognito }
         if (currentId.longValue == id) {
-            val opener = same.firstOrNull { it.id == tab.openerId }
+            val opener = tabs.firstOrNull { it.id == tab.openerId }
             when {
                 opener != null -> select(opener.id)   // back to the tab the link was opened from
-                same.isNotEmpty() -> select(same.last().id)
-                tab.incognito -> closePrivate() // last private tab closed → wipe and go back to normal tabs
+                tabs.isNotEmpty() -> select(tabs.last().id)
                 else -> newTab(HOME)
             }
-        } else if (tab.incognito && same.isEmpty()) {
-            main.postDelayed({ wipePrivateProfile() }, 500)
         }
     }
 
-    /** Closes all tabs of the space being shown. */
-    fun closeAll() {
-        if (privateMode.value) { closePrivate(); return }
-        tabs.filter { !it.incognito }.forEach { closeTab(it.id) }
-    }
+    fun closeAll() { tabs.toList().forEach { closeTab(it.id) } }
 
     fun load(input: String) {
         val tab = current ?: newTab(null)
-        val u = secure(tab, toUrl(input, tab.incognito))
+        val u = toUrl(input)
         if (u == HOME) { tab.home.value = true; return }
         tab.pendingUrl = null
         if (tab.home.value) {
@@ -382,24 +295,14 @@ class BrowserController(private val activity: Activity) {
         if (tab.openingFromHome.value) { tab.openingFromHome.value = false; tab.home.value = false }
     }
 
-    /** Private tabs: http → https (unless the user allowed that site without encryption). */
-    private fun secure(tab: BrowserTab, url: String): String {
-        if (!tab.incognito || !url.startsWith("http://")) return url
-        val host = runCatching { Uri.parse(url).host }.getOrNull() ?: return url
-        if (host in httpAllowed || host == "localhost" || Regex("^\\d+(\\.\\d+){3}$").matches(host)) return url
-        val https = "https://" + url.removePrefix("http://")
-        upgraded[https] = url
-        return https
-    }
-
-    fun toUrl(input: String, private: Boolean = false): String {
+    fun toUrl(input: String): String {
         val t = input.trim()
         if (t.isEmpty()) return HOME
         if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(t) || t.startsWith("about:")) return t
         // local devices (router, inverter…) usually speak plain http
         if (Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?(/.*)?$").matches(t) || t.startsWith("localhost")) return "http://$t"
         if (!t.contains(' ') && Regex("^[^\\s]+\\.[a-zA-Z]{2,}(:\\d+)?(/.*)?$").matches(t)) return "https://$t"
-        return AppSettings.searchUrl(t, private)
+        return AppSettings.searchUrl(t)
     }
 
     fun setDesktop(tab: BrowserTab, on: Boolean) {
@@ -481,7 +384,7 @@ class BrowserController(private val activity: Activity) {
     }
 
     fun saveSession() {
-        val urls = tabs.filter { !it.incognito }.map { if (it.home.value) HOME else it.url.value }.filter { it.startsWith("http") || it == HOME }
+        val urls = tabs.map { if (it.home.value) HOME else it.url.value }.filter { it.startsWith("http") || it == HOME }
         runCatching { sessionFile.writeText(json.encodeToString(urls)) }
         CookieManager.getInstance().flush()
     }
@@ -516,7 +419,7 @@ class BrowserController(private val activity: Activity) {
 
     private fun headersFor(url: String, ua: String?, referer: String?): Map<String, String> = buildMap {
         put("User-Agent", ua ?: WebSettings.getDefaultUserAgent(activity))
-        cookieManagerFor(current).getCookie(url)?.let { put("Cookie", it) }
+        CookieManager.getInstance().getCookie(url)?.let { put("Cookie", it) }
         if (!referer.isNullOrBlank()) put("Referer", referer)
     }
 
@@ -527,11 +430,11 @@ class BrowserController(private val activity: Activity) {
             else -> {
                 val name = URLUtil.guessFileName(url, contentDisposition, mime)
                 val ua = tab?.webView?.settings?.userAgentString
-                if (com.ali.files.torrent.isTorrentLink(url, mime) || name.endsWith(".torrent", true)) {
-                    com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Link(url, headersFor(url, ua, tab?.url?.value)), tab?.incognito == true)
+                if (mime == "application/x-bittorrent" || name.endsWith(".torrent", true)) {
+                    toast("ملفات التورنت مش مدعومة")
                     return
                 }
-                onDownloadRequest?.invoke(DownloadRequest(url, name, mime, size, headersFor(url, ua, tab?.url?.value), private = tab?.incognito == true))
+                onDownloadRequest?.invoke(DownloadRequest(url, name, mime, size, headersFor(url, ua, tab?.url?.value)))
             }
         }
     }
@@ -548,12 +451,11 @@ class BrowserController(private val activity: Activity) {
         url, headersFor(url, tab.webView.settings.userAgentString, null),
         title = tab.title.value.removeSuffix(" - YouTube").takeIf { it.isNotBlank() && url == tab.url.value },
         thumbnail = com.ali.files.download.VideoExtractor.youtubeId(url)?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
-        private = tab.incognito,
     )
 
     /** On a video page, start reading its qualities after a moment, so the download sheet opens ready. */
     private fun schedulePrefetch(tab: BrowserTab, url: String) {
-        if (tab.incognito || !com.ali.files.download.VideoExtractor.isSingleVideoPage(url)) return
+        if (!com.ali.files.download.VideoExtractor.isSingleVideoPage(url)) return
         main.postDelayed({
             if (tab.url.value == url && tabs.contains(tab)) com.ali.files.download.VideoExtractor.prefetch(videoRequestFor(tab, url))
         }, 1500)
@@ -596,7 +498,6 @@ class BrowserController(private val activity: Activity) {
     }
 
     /** Long-press «open in a private tab». */
-    fun openPrivate(url: String) { newTab(url, incognito = true) }
 
     /** Asks the user (once per site per session) and then Android, before a site gets the camera / mic / location. */
     private fun askSite(origin: String, kinds: List<String>, tab: BrowserTab, done: (Boolean) -> Unit) {
@@ -606,7 +507,7 @@ class BrowserController(private val activity: Activity) {
         sitePermission.value = SitePermission(host, kinds) { ok ->
             sitePermission.value = null
             if (!ok) { done(false); return@SitePermission }
-            if (!tab.incognito) allowedSites.getOrPut(host) { HashSet() }.addAll(kinds)
+            allowedSites.getOrPut(host) { HashSet() }.addAll(kinds)
             androidGrant(kinds, done)
         }
     }
@@ -641,16 +542,8 @@ class BrowserController(private val activity: Activity) {
             javaScriptCanOpenWindowsAutomatically = false
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            if (tab.incognito) cacheMode = WebSettings.LOAD_NO_CACHE
         }
-        if (tab.incognito && profilesSupported) {
-            // separate cookie jar / storage / cache for private tabs; must be set before the first load
-            runCatching {
-                androidx.webkit.ProfileStore.getInstance().getOrCreateProfile(PRIVATE_PROFILE)
-                androidx.webkit.WebViewCompat.setProfile(wv, PRIVATE_PROFILE)
-            }
-        }
-        cookieManagerFor(tab).setAcceptThirdPartyCookies(wv, !tab.incognito)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
         // dark websites when the phone is dark (only pages that don't have their own dark look)
         if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
             runCatching { androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(wv.settings, AppSettings.darkSites.value) }
@@ -668,24 +561,14 @@ class BrowserController(private val activity: Activity) {
         wv.addJavascriptInterface(BgMedia.Bridge(activity, tab), BgMedia.BRIDGE)
         wv.addJavascriptInterface(InnerScroll.Bridge(tab), InnerScroll.BRIDGE)
         if (docStartScript) {
-            // private tabs: anti-fingerprinting, before any of the site's own code
-            if (tab.incognito) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, PrivacyShield.script(), setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, AdFilter.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
             if (AppSettings.bgPlay.value) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, BgMedia.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, InnerScroll.SCRIPT, setOf("*")) }
         }
 
-        // hide the toolbar while reading down the page, show it again when scrolling up
-        wv.setOnScrollChangeListener { _, _, y, _, oldY ->
-            if (tab.id != currentId.longValue || imeOpen) return@setOnScrollChangeListener
-            val dy = y - oldY
-            when {
-                y < 60 -> if (barsHidden.value) barsHidden.value = false
-                dy > 18 -> if (!barsHidden.value) barsHidden.value = true
-                dy < -18 -> if (barsHidden.value) barsHidden.value = false
-            }
-        }
+        // the toolbar stays put: hiding it resized the page mid-scroll, and lists inside pages
+        // (YouTube playlists) stopped after moving a little.
 
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -697,27 +580,11 @@ class BrowserController(private val activity: Activity) {
                     !(tab.pageHost?.let { SiteAllow.isAllowed(it) } ?: false)
                 ) {
                     tab.blocked.intValue++
-                    if (tab.incognito) privateBlocked.intValue++
                     AdStats.add(1)
                     if (tab.fromPopup && !view.canGoBack()) main.post { closeTab(tab.id) }
                     return true
                 }
-                // «open without encryption» on the private error page
-                if (scheme == "alifiles-insecure") {
-                    val target = Uri.decode(u.toString().substringAfter(':'))
-                    runCatching { Uri.parse(target).host }.getOrNull()?.let { httpAllowed.add(it) }
-                    view.loadUrl(target)
-                    return true
-                }
-                // private tabs: http pages open over https
-                if (scheme == "http" && request.isForMainFrame && tab.incognito) {
-                    val s = secure(tab, u.toString())
-                    if (s != u.toString()) { view.loadUrl(s); return true }
-                }
-                if (scheme == "magnet") {
-                    com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Magnet(u.toString()), tab.incognito)
-                    return true
-                }
+                if (scheme == "magnet") { toast("لينكات التورنت مش مدعومة"); return true }
                 if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) return false
                 // intent:, market:, whatsapp:, tel:, mailto: … → hand to the right app
                 try {
@@ -758,7 +625,7 @@ class BrowserController(private val activity: Activity) {
                 tab.title.value = view.title ?: tab.url.value
                 tab.canBack.value = view.canGoBack()
                 tab.canForward.value = view.canGoForward()
-                if (!tab.incognito) addHistory(tab.title.value, tab.url.value)
+                addHistory(tab.title.value, tab.url.value)
                 sniffDom(tab)
                 if (!docStartScript) {
                     view.evaluateJavascript(AdFilter.SCRIPT, null)
@@ -777,7 +644,7 @@ class BrowserController(private val activity: Activity) {
                     }
                     tab.url.value = url
                     schedulePrefetch(tab, url)
-                    if (!tab.incognito) addHistory(view.title ?: "", url)
+                    addHistory(view.title ?: "", url)
                 }
                 tab.canBack.value = view.canGoBack()
                 tab.canForward.value = view.canGoForward()
@@ -787,20 +654,20 @@ class BrowserController(private val activity: Activity) {
                 if (!request.isForMainFrame || error.errorCode !in ErrorPage.codes) return
                 val failing = request.url.toString()
                 if (failing.startsWith("data:")) return
-                view.loadDataWithBaseURL(failing, ErrorPage.html(error.errorCode, failing, upgraded[failing]), "text/html", "utf-8", failing)
+                view.loadDataWithBaseURL(failing, ErrorPage.html(error.errorCode, failing), "text/html", "utf-8", failing)
             }
 
             override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
                 handler.cancel()
                 val failing = error.url ?: return
                 if (failing != view.url && failing != tab.url.value) return
-                view.loadDataWithBaseURL(failing, ErrorPage.html(android.webkit.WebViewClient.ERROR_FAILED_SSL_HANDSHAKE, failing, upgraded[failing]), "text/html", "utf-8", failing)
+                view.loadDataWithBaseURL(failing, ErrorPage.html(android.webkit.WebViewClient.ERROR_FAILED_SSL_HANDSHAKE, failing), "text/html", "utf-8", failing)
             }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url.toString()
                 if (AppSettings.adBlockFast && !request.isForMainFrame && AdFilter.shouldBlock(url, request.url.host, tab.pageHost)) {
-                    main.post { tab.blocked.intValue++; if (tab.incognito) privateBlocked.intValue++ }
+                    main.post { tab.blocked.intValue++ }
                     AdStats.add(1)
                     return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                 }
@@ -813,7 +680,7 @@ class BrowserController(private val activity: Activity) {
             override fun onProgressChanged(view: WebView, newProgress: Int) { tab.progress.intValue = newProgress }
             override fun onReceivedTitle(view: WebView, title: String?) {
                 tab.title.value = title ?: ""
-                if (!tab.incognito && !title.isNullOrBlank() && history.firstOrNull()?.url == tab.url.value) addHistory(title, tab.url.value)
+                if (!title.isNullOrBlank() && history.firstOrNull()?.url == tab.url.value) addHistory(title, tab.url.value)
             }
 
             // a site asks for the location (maps, weather…)
@@ -841,7 +708,7 @@ class BrowserController(private val activity: Activity) {
             // pop-up blocker: only windows opened by a real tap become new tabs
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 if (!isUserGesture) { tab.blocked.intValue++; AdStats.add(1); return false }
-                val t = newTab(null, tab.incognito)
+                val t = newTab(null)
                 t.fromPopup = true
                 t.openerId = tab.id
                 val transport = resultMsg.obj as WebView.WebViewTransport
@@ -933,7 +800,7 @@ class BrowserController(private val activity: Activity) {
                     val extra = r.extra
                     if (extra.isNullOrBlank()) false
                     else {
-                        onLongPress?.invoke(LongPress(extra, r.type != WebView.HitTestResult.SRC_ANCHOR_TYPE, tab.incognito, tab.url.value))
+                        onLongPress?.invoke(LongPress(extra, r.type != WebView.HitTestResult.SRC_ANCHOR_TYPE, tab.url.value))
                         true
                     }
                 }

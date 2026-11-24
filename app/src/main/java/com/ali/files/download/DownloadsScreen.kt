@@ -81,7 +81,7 @@ import kotlinx.coroutines.launch
 private enum class DFilter(val label: String) { ALL("الكل"), ACTIVE("جاري"), DONE("مكتمل"), FAILED("فشل") }
 
 @Composable
-fun DownloadsScreen(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Unit) {
+fun DownloadsScreen(onRequest: (DownloadRequest) -> Unit) {
     val items by Downloader.items.collectAsState()
     var filter by remember { mutableStateOf(DFilter.ALL) }
     var addLink by remember { mutableStateOf(false) }
@@ -94,17 +94,8 @@ fun DownloadsScreen(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Uni
         }
     }
     val totalSpeed = items.filter { it.status == DStatus.RUNNING }.sumOf { it.speed }
-    val torrents = com.ali.files.torrent.TorrentInbox.showTorrents
 
     Column(Modifier.fillMaxSize()) {
-    Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = !torrents.value, onClick = { torrents.value = false }, label = { Text("روابط وفيديوهات") })
-        val tn = com.ali.files.torrent.TorrentEngine.items.collectAsState().value.count { !it.rec.done }
-        FilterChip(selected = torrents.value, onClick = { torrents.value = true }, label = { Text(if (tn > 0) "🧲 تورنت ($tn)" else "🧲 تورنت") })
-    }
-    if (torrents.value) {
-        com.ali.files.torrent.TorrentList { com.ali.files.torrent.TorrentInbox.open(it) }
-    } else
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -137,7 +128,7 @@ fun DownloadsScreen(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Uni
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(shown, key = { it.id }) { DownloadRow(it, onOpenVault) }
+                    items(shown, key = { it.id }) { DownloadRow(it) }
                 }
             }
         }
@@ -152,13 +143,12 @@ fun DownloadsScreen(onRequest: (DownloadRequest) -> Unit, onOpenVault: () -> Uni
 
     if (addLink) AddLinkDialog(onDismiss = { addLink = false }) { url ->
         addLink = false
-        if (com.ali.files.torrent.isTorrentLink(url)) com.ali.files.torrent.TorrentInbox.open(com.ali.files.torrent.TorrentSource.Link(url, emptyMap()))
-        else onRequest(DownloadRequest(url, URLUtil.guessFileName(url, null, null)))
+        onRequest(DownloadRequest(url, URLUtil.guessFileName(url, null, null)))
     }
 }
 
 @Composable
-private fun DownloadRow(d: DownloadItem, onOpenVault: () -> Unit) {
+private fun DownloadRow(d: DownloadItem) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
@@ -182,9 +172,7 @@ private fun DownloadRow(d: DownloadItem, onOpenVault: () -> Unit) {
                 DStatus.RUNNING, DStatus.QUEUED -> IconButton(onClick = { Downloader.pause(d.id) }) { Icon(Icons.Filled.Pause, "إيقاف مؤقت") }
                 DStatus.PAUSED -> IconButton(onClick = { Downloader.resume(d.id) }) { Icon(Icons.Filled.PlayArrow, "استكمال") }
                 DStatus.FAILED -> IconButton(onClick = { Downloader.resume(d.id) }) { Icon(Icons.Filled.Refresh, "إعادة المحاولة") }
-                DStatus.COMPLETED -> if (d.savedInVault) {
-                    IconButton(onClick = onOpenVault) { Icon(Icons.Filled.Lock, "في الخزنة", tint = MaterialTheme.colorScheme.secondary) }
-                } else if (d.libraryPath != null) {
+                DStatus.COMPLETED -> if (d.libraryPath != null) {
                     IconButton(onClick = { openFromLibrary(ctx, d) }) {
                         Icon(Icons.Filled.PlayArrow, "تشغيل", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -207,25 +195,9 @@ private fun DownloadRow(d: DownloadItem, onOpenVault: () -> Unit) {
                         DropdownMenuItem(text = { Text("مشاركة") }, onClick = {
                             menu = false; FileStore.share(ctx, com.ali.files.library.Library.uriFor(java.io.File(d.libraryPath)), d.mime)
                         })
-                        DropdownMenuItem(text = { Text("انقله للخزنة 🔒") }, onClick = {
-                            menu = false
-                            scope.launch {
-                                runCatching { Downloader.moveToVault(d.id) }
-                                    .onSuccess { Toast.makeText(ctx, "اتنقل للخزنة", Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(ctx, it.message ?: "تعذر النقل", Toast.LENGTH_SHORT).show() }
-                            }
-                        })
                     }
                     if (d.status == DStatus.COMPLETED && d.savedUri != null) {
                         DropdownMenuItem(text = { Text("مشاركة") }, onClick = { menu = false; FileStore.share(ctx, Uri.parse(d.savedUri), d.mime) })
-                        DropdownMenuItem(text = { Text("انقله للخزنة 🔒") }, onClick = {
-                            menu = false
-                            scope.launch {
-                                runCatching { Downloader.moveToVault(d.id) }
-                                    .onSuccess { Toast.makeText(ctx, "اتنقل للخزنة", Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(ctx, it.message ?: "تعذر النقل", Toast.LENGTH_SHORT).show() }
-                            }
-                        })
                     }
                     DropdownMenuItem(text = { Text("انسخ الرابط") }, onClick = {
                         menu = false
@@ -261,12 +233,10 @@ private fun statusLine(d: DownloadItem): String {
                 }
             }
             if (!d.hls && d.segments.size > 1) append(" • ${d.segments.size} خيوط")
-            if (d.toVault) append(" • 🔒")
         }
         DStatus.PAUSED -> "متوقف • " + (if (d.hls) "جزء ${d.hlsIndex} من ${d.hlsTotal}" else size)
         DStatus.FAILED -> "فشل: ${d.error ?: "خطأ غير معروف"}"
         DStatus.COMPLETED -> formatBytes(d.downloaded) + when {
-            d.savedInVault -> " • في الخزنة 🔒"
             d.libraryPath != null -> " • في المكتبة"
             else -> " • Download/AliFiles"
         }
@@ -296,18 +266,17 @@ private fun AddLinkDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(enabled = url.trim().startsWith("http") || url.trim().startsWith("magnet:", true), onClick = { onOk(url.trim()) }) { Text("التالي") }
+            TextButton(enabled = url.trim().startsWith("http"), onClick = { onOk(url.trim()) }) { Text("التالي") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
 }
 
-/** Confirms a download: file name, number of threads, destination (Downloads or encrypted vault). */
+/** Confirms a download: file name and number of threads. */
 @Composable
-fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: (toVault: Boolean) -> Unit) {
+fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: () -> Unit) {
     var name by remember(req) { mutableStateOf(req.fileName) }
     var threads by remember(req) { mutableFloatStateOf(AppSettings.threads.intValue.toFloat()) }
-    var toVault by remember(req) { mutableStateOf(req.private || AppSettings.saveToVault.value) }
     val hls = Downloader.isHlsUrl(req.url, req.mime)
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
@@ -327,18 +296,12 @@ fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: (toVa
                 )
                 Text(if (hls) "عدد الأجزاء مع بعض: ${threads.toInt()}" else "عدد الخيوط (أسرع مع السيرفرات اللي بتدعم): ${threads.toInt()}", fontSize = 13.sp)
                 Slider(value = threads, onValueChange = { threads = it }, valueRange = 1f..16f, steps = 14)
-                Text("الحفظ في:", fontSize = 13.sp)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = !toVault, onClick = { toVault = false }); Text("المكتبة")
-                    Spacer(Modifier.width(12.dp))
-                    RadioButton(selected = toVault, onClick = { toVault = true }); Text("الخزنة 🔒")
-                }
             }
         },
         confirmButton = {
             TextButton(enabled = name.isNotBlank(), onClick = {
-                Downloader.enqueue(req.copy(fileName = name.trim()), threads.toInt(), toVault)
-                onStarted(toVault)
+                Downloader.enqueue(req.copy(fileName = name.trim()), threads.toInt())
+                onStarted()
             }) { Text("ابدأ التحميل") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },

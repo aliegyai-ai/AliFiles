@@ -31,12 +31,10 @@ data class DownloadItem(
     val downloaded: Long = 0,
     val status: DStatus = DStatus.QUEUED,
     val threads: Int = 4,
-    val toVault: Boolean = false,
     val headers: Map<String, String> = emptyMap(),
     val createdAt: Long = System.currentTimeMillis(),
     val error: String? = null,
     val savedUri: String? = null,
-    val savedInVault: Boolean = false,
     /** where the file is in the app's library (new downloads stay inside the app) */
     val libraryPath: String? = null,
     val resumable: Boolean = false,
@@ -73,6 +71,4 @@ data class DownloadRequest(
     val mime: String? = null,
     val size: Long = -1,
     val headers: Map<String, String> = emptyMap(),
-    /** from a private tab → saved in the vault by default */
-    val private: Boolean = false,
 )
