@@ -38,6 +38,9 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -113,9 +116,13 @@ import com.ali.files.util.kindIcon
 import com.ali.files.util.kindOf
 import kotlinx.coroutines.launch
 
-private enum class LFilter(val label: String) {
-    ALL("الكل"), VIDEO("فيديو"), AUDIO("صوت"), FAV("المفضلة"), LISTS("قوايم التشغيل"), IMAGE("صور"), OTHER("ملفات")
+private enum class LFilter(val label: String, val color: Long) {
+    ALL("كل الملفات", 0xFFD4A94F), VIDEO("فيديوهات", 0xFFE8B865), AUDIO("أغاني", 0xFF9CC7E8), NOMUSIC("بدون موسيقى", 0xFFE88A70),
+    LONG("قرآن ودروس", 0xFF7FB685), FAV("المفضلة", 0xFFF06292), LISTS("قوايم التشغيل", 0xFFBA68C8), IMAGE("صور", 0xFF4DD0E1), OTHER("ملفات", 0xFF90A4AE)
 }
+
+/** made by «remove the music» (its own folder, or the old name ending) */
+private fun LibFile.separated() = folder.startsWith("بدون موسيقى") || folder.startsWith("موسيقى بس") || title.endsWith("(بدون موسيقى)") || title.endsWith("(موسيقى بس)")
 
 fun LibFile.toTrack(): Track = Track(
     id = path, uri = Uri.fromFile(file), title = title,
@@ -206,10 +213,17 @@ fun LibraryScreen() {
         }
     }
 
+    // audio longer than 20 minutes = Quran, lessons, talks (kept apart from songs)
+    val durations by androidx.compose.runtime.produceState(emptyMap<String, Long>(), files) {
+        value = files.filter { it.kind == FileKind.AUDIO }.associate { it.path to Library.duration(it) }
+    }
+    fun isLong(f: LibFile) = (durations[f.path] ?: 0L) > 20 * 60_000L
     val shown = Library.sorted(when (filter) {
         LFilter.ALL -> files.filter { it.folder == current }
         LFilter.VIDEO -> visible.filter { it.kind == FileKind.VIDEO }
-        LFilter.AUDIO -> visible.filter { it.kind == FileKind.AUDIO }
+        LFilter.AUDIO -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && !isLong(it) }
+        LFilter.NOMUSIC -> visible.filter { it.kind == FileKind.AUDIO && it.separated() || it.kind == FileKind.VIDEO && it.separated() }
+        LFilter.LONG -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && isLong(it) }
         LFilter.FAV -> visible.filter { it.path in favs }
         LFilter.IMAGE -> visible.filter { it.kind == FileKind.IMAGE }
         LFilter.OTHER -> visible.filter { it.kind != FileKind.VIDEO && it.kind != FileKind.AUDIO && it.kind != FileKind.IMAGE }
@@ -276,8 +290,25 @@ fun LibraryScreen() {
             }
         }
         SeparationJobs()
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LFilter.entries.forEach { f -> FilterChip(selected = filter == f, onClick = { filter = f; openList = null }, label = { Text(f.label) }) }
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LFilter.entries.forEach { f ->
+                val list = when (f) {
+                    LFilter.ALL -> visible
+                    LFilter.VIDEO -> visible.filter { it.kind == FileKind.VIDEO }
+                    LFilter.AUDIO -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && !isLong(it) }
+                    LFilter.NOMUSIC -> visible.filter { it.separated() }
+                    LFilter.LONG -> visible.filter { it.kind == FileKind.AUDIO && !it.separated() && isLong(it) }
+                    LFilter.FAV -> visible.filter { it.path in favs }
+                    LFilter.IMAGE -> visible.filter { it.kind == FileKind.IMAGE }
+                    LFilter.OTHER -> visible.filter { it.kind != FileKind.VIDEO && it.kind != FileKind.AUDIO && it.kind != FileKind.IMAGE }
+                    LFilter.LISTS -> emptyList()
+                }
+                if (list.isEmpty() && f != LFilter.ALL && f != filter && f != LFilter.LISTS) return@forEach
+                CategoryCard(
+                    f, if (f == LFilter.LISTS) "${playlists.size} قايمة" else "${list.size} • ${formatBytes(list.sumOf { it.size })}",
+                    selected = filter == f,
+                ) { filter = f; openList = null; selection = emptySet() }
+            }
         }
 
         if (filter == LFilter.ALL && current.isNotEmpty()) Breadcrumbs(current) { current = it }
@@ -294,16 +325,19 @@ fun LibraryScreen() {
                 items(subFolders, key = { "dir:" + it.rel }, span = { GridItemSpan(maxLineSpan) }) { d ->
                     FolderRow(d, meta[d.rel] ?: FolderMeta(), pinned = "dir:" + d.rel in pins, locked = Library.isLocked(d.rel), onClick = { openFolder(d.rel) }, onMenu = { folderMenu = d })
                 }
-                if (filter == LFilter.AUDIO || filter == LFilter.FAV) {
+                if (filter == LFilter.AUDIO || filter == LFilter.FAV || filter == LFilter.NOMUSIC || filter == LFilter.LONG) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         val songs = shown.filter { it.kind == FileKind.AUDIO }
-                        if (songs.isNotEmpty()) Row(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { PlayerHub.shuffle.value = false; PlayerHub.play(songs.map { it.toTrack() }) }, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Filled.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("شغّل الكل")
+                        if (songs.isNotEmpty()) Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${songs.size} ${filter.label}", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { PlayerHub.shuffle.value = true; PlayerHub.play(songs.shuffled().map { it.toTrack() }) }) {
+                                Icon(Icons.Filled.Shuffle, "عشوائي", tint = MaterialTheme.colorScheme.primary)
                             }
-                            OutlinedButton(onClick = { PlayerHub.shuffle.value = true; PlayerHub.play(songs.shuffled().map { it.toTrack() }) }, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Filled.Shuffle, null); Spacer(Modifier.width(4.dp)); Text("عشوائي")
-                            }
+                            Box(
+                                Modifier.size(44.dp).clip(CircleShape).background(com.ali.files.ui.GoldBrush)
+                                    .clickable { PlayerHub.shuffle.value = false; PlayerHub.play(songs.map { it.toTrack() }) },
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Filled.PlayArrow, "شغّل الكل", tint = Color(0xFF14100A)) }
                         }
                     }
                 }
@@ -352,7 +386,12 @@ fun LibraryScreen() {
 @Composable
 private fun SeparationJobs() {
     val ctx = LocalContext.current
-    val jobs by com.ali.files.separate.Separator.jobs.collectAsState()
+    val all by com.ali.files.separate.Separator.jobs.collectAsState()
+    // finished ones leave on their own (the notification says «done»); running ones and errors stay
+    androidx.compose.runtime.LaunchedEffect(all) {
+        all.filter { it.done && it.error == null }.forEach { com.ali.files.separate.Separator.dismiss(it.id) }
+    }
+    val jobs = all.filter { !it.done || it.error != null }
     if (jobs.isEmpty()) return
     val gold = MaterialTheme.colorScheme.primary
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -656,4 +695,38 @@ object LibraryTabState {
     fun open(f: Int) { filter.intValue = f; filterAsk.intValue++; page.intValue = 0; folder.value = "" }
     /** locked folders opened since the app was opened */
     val unlocked = HashSet<String>()
+}
+
+
+@Composable
+private fun CategoryCard(f: LFilter, sub: String, selected: Boolean, onClick: () -> Unit) {
+    val c = Color(f.color)
+    val icon = when (f) {
+        LFilter.ALL -> Icons.Filled.Folder
+        LFilter.VIDEO -> Icons.Filled.VideoLibrary
+        LFilter.AUDIO -> Icons.Filled.LibraryMusic
+        LFilter.NOMUSIC -> Icons.Filled.MusicOff
+        LFilter.LONG -> Icons.AutoMirrored.Filled.MenuBook
+        LFilter.FAV -> Icons.Filled.Favorite
+        LFilter.LISTS -> Icons.AutoMirrored.Filled.QueueMusic
+        LFilter.IMAGE -> Icons.Filled.PhotoLibrary
+        LFilter.OTHER -> Icons.Filled.Description
+    }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) c.copy(alpha = 0.20f) else MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) c else MaterialTheme.colorScheme.surfaceContainerHighest),
+        modifier = Modifier.width(120.dp).animateContentSize(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(c.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = c, modifier = Modifier.size(21.dp))
+            }
+            Column {
+                Text(f.label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+        }
+    }
 }

@@ -237,20 +237,20 @@ class SeparateService : Service() {
             val src = File(job.path)
             val dest: File = if (job.isVideo) {
                 val ext = if (src.extension.lowercase() == "mp4") "mp4" else "mkv"
-                val out = Library.uniqueFile("${job.title} (${job.mode.suffix}).$ext")
+                val out = Library.uniqueFile("${job.title} (${job.mode.suffix}).$ext", java.io.File(Library.dir, job.mode.suffix).apply { mkdirs() })
                 ffmpeg(listOf(
                     "-y", "-i", job.path, "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path,
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", out.path,
                 ), "تعذر حفظ الفيديو")
                 out
             } else {
-                val mp3 = Library.uniqueFile("${job.title} (${job.mode.suffix}).mp3")
+                val mp3 = Library.uniqueFile("${job.title} (${job.mode.suffix}).mp3", java.io.File(Library.dir, job.mode.suffix).apply { mkdirs() })
                 try {
                     ffmpeg(listOf("-y", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path, "-c:a", "libmp3lame", "-q:a", "2", mp3.path), "تعذر حفظ الصوت")
                     mp3
                 } catch (e: IOException) {
                     mp3.delete()
-                    val m4a = Library.uniqueFile("${job.title} (${job.mode.suffix}).m4a")
+                    val m4a = Library.uniqueFile("${job.title} (${job.mode.suffix}).m4a", java.io.File(Library.dir, job.mode.suffix).apply { mkdirs() })
                     ffmpeg(listOf("-y", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", outRaw.path, "-c:a", "aac", "-b:a", "256k", m4a.path), "تعذر حفظ الصوت")
                     m4a
                 }
