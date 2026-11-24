@@ -28,6 +28,9 @@ data class LibFile(val file: File, val kind: FileKind, val size: Long, val modif
     val mime: String get() = mimeOf(file.name)
 }
 
+/** what to do with a folder that has the same name where it's being moved */
+enum class Clash { MERGE, RENAME }
+
 /** A folder in the library ([rel] = path inside the library, e.g. "أفلام/أكشن"). */
 data class LibFolder(val rel: String, val count: Int, val size: Long, val modified: Long) {
     val name: String get() = rel.substringAfterLast('/')
@@ -201,6 +204,81 @@ object Library {
         if ("dir:" + f.rel in _pinned.value) savePinned(_pinned.value - ("dir:" + f.rel) + ("dir:$newRel"))
         refresh()
         return true
+    }
+
+    /** a folder can't go into itself, into one of its own subfolders, or where it already is */
+    fun canMoveFolder(rel: String, target: String) =
+        target != rel && !target.startsWith("$rel/") && (if ('/' in rel) rel.substringBeforeLast('/') else "") != target
+
+    /** a folder with the same name is already in [target] */
+    fun folderClash(rel: String, target: String) = File(folderDir(target), rel.substringAfterLast('/')).exists()
+
+    /**
+     * Moves a folder (with everything in it, its colour, lock and pin) into [target] ("" = top).
+     * If a folder with that name is already there: [Clash.MERGE] puts the contents together,
+     * [Clash.RENAME] keeps both ("name (2)"). Returns the folder's new place, or null.
+     */
+    fun moveFolder(rel: String, target: String, clash: Clash = Clash.RENAME): String? {
+        if (!canMoveFolder(rel, target)) return null
+        val src = folderDir(rel)
+        if (!src.isDirectory) return null
+        val to = folderDir(target).apply { mkdirs() }
+        var dest = File(to, src.name)
+        if (dest.exists() && clash == Clash.RENAME) {
+            var i = 2
+            while (File(to, "${src.name} ($i)").exists()) i++
+            dest = File(to, "${src.name} ($i)")
+        }
+        val merge = dest.exists()
+        if (merge) mergeInto(src, dest) else {
+            if (!src.renameTo(dest)) return null
+            remapPaths(src.absolutePath, dest.absolutePath)
+        }
+        val newRel = rel(dest)
+        remapRel(rel, newRel, keepExisting = merge)
+        refresh()
+        return newRel
+    }
+
+    /** puts a moved folder back where it was */
+    fun undoMoveFolder(newRel: String, oldRel: String): Boolean {
+        val src = folderDir(newRel)
+        val dest = folderDir(oldRel)
+        if (!src.isDirectory || dest.exists()) return false
+        dest.parentFile?.mkdirs()
+        if (!src.renameTo(dest)) return false
+        remapPaths(src.absolutePath, dest.absolutePath)
+        remapRel(newRel, oldRel)
+        refresh()
+        return true
+    }
+
+    private fun mergeInto(src: File, dest: File) {
+        src.listFiles()?.forEach { c ->
+            if (c.isDirectory) {
+                val d = File(dest, c.name)
+                if (d.exists()) mergeInto(c, d) else if (c.renameTo(d)) remapPaths(c.absolutePath, d.absolutePath)
+            } else {
+                val d = uniqueFile(c.name, dest)
+                if (c.renameTo(d)) remapPaths(c.absolutePath, d.absolutePath)
+            }
+        }
+        src.deleteRecursively()
+    }
+
+    /** colour / lock / pin of a folder (and the ones inside it) follow it to its new place */
+    private fun remapRel(from: String, to: String, keepExisting: Boolean = false) {
+        fun inside(k: String) = k == from || k.startsWith("$from/")
+        fun m(k: String) = if (inside(k)) to + k.removePrefix(from) else k
+        val meta = _meta.value
+        if (meta.keys.any(::inside)) {
+            val moved = meta.filterKeys(::inside).mapKeys { m(it.key) }
+            val rest = meta.filterKeys { !inside(it) }
+            saveMeta(if (keepExisting) moved + rest else rest + moved)
+        }
+        val pins = _pinned.value
+        val np = pins.map { if (it.startsWith("dir:")) "dir:" + m(it.removePrefix("dir:")) else it }.toSet()
+        if (np != pins) savePinned(np)
     }
 
     fun setColor(rel: String, color: Int) = saveMeta(_meta.value + (rel to (_meta.value[rel] ?: FolderMeta()).copy(color = color)))
