@@ -9,6 +9,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.sp
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -84,6 +91,8 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
     }
 
     Scaffold(
+        modifier = Modifier.appBackground(),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         snackbarHost = { SnackbarHost(ui.snackbar) },
         bottomBar = {
             // the browser has its own slim toolbar + menu, so the app bar only shows on the other screens
@@ -105,33 +114,23 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                     }
                 }
             }
-            if (!browser.fullscreen.value && tab != UiState.TAB_BROWSER) NavigationBar {
-                NavigationBarItem(
-                    selected = tab == UiState.TAB_BROWSER, onClick = { ui.tab.intValue = UiState.TAB_BROWSER },
-                    icon = { Icon(Icons.Filled.Public, null) }, label = { Text("المتصفح") },
-                )
-                NavigationBarItem(
-                    selected = tab == UiState.TAB_DOWNLOADS, onClick = { ui.tab.intValue = UiState.TAB_DOWNLOADS },
-                    icon = {
-                        BadgedBox(badge = { if (activeCount > 0) Badge { Text("$activeCount") } }) { Icon(Icons.Filled.VideoLibrary, null) }
-                    },
-                    label = { Text("المكتبة") },
-                )
-                NavigationBarItem(
-                    selected = tab == UiState.TAB_VAULT, onClick = { ui.tab.intValue = UiState.TAB_VAULT },
-                    icon = { Icon(Icons.Filled.Lock, null) }, label = { Text("الخزنة") },
-                )
-                NavigationBarItem(
-                    selected = tab == UiState.TAB_SETTINGS, onClick = { ui.tab.intValue = UiState.TAB_SETTINGS },
-                    icon = { Icon(Icons.Filled.Settings, null) }, label = { Text("الإعدادات") },
-                )
-            }
+            if (!browser.fullscreen.value && tab != UiState.TAB_BROWSER) FloatingNav(tab, activeCount) { ui.tab.intValue = it }
             }
         },
     ) { pad ->
         // back from downloads / vault / settings returns to the browser instead of closing the app
         androidx.activity.compose.BackHandler(enabled = tab != UiState.TAB_BROWSER) { ui.tab.intValue = UiState.TAB_BROWSER }
         Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).imePadding()) {
+            // a soft cross-fade between the main screens
+            androidx.compose.animation.AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                        androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(220), initialScale = 0.98f)) togetherWith
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
+                },
+                label = "tabs",
+            ) { tab ->
             when (tab) {
                 UiState.TAB_BROWSER -> BrowserScreen(browser, ui)
                 UiState.TAB_DOWNLOADS -> com.ali.files.library.LibraryTab(
@@ -143,6 +142,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                 )
                 UiState.TAB_VAULT -> VaultScreen()
                 else -> SettingsScreen(browser, ui)
+            }
             }
         }
     }
@@ -237,5 +237,52 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         }
         com.ali.files.player.PlayerHub.videoOpen.value -> com.ali.files.player.VideoPlayerScreen(onPip = { (ctx as? com.ali.files.MainActivity)?.enterPip() })
         com.ali.files.player.PlayerHub.musicOpen.value -> com.ali.files.player.NowPlayingScreen()
+    }
+}
+
+
+/** The floating bottom bar: the open section is a gold pill with its name. */
+@Composable
+private fun FloatingNav(tab: Int, activeDownloads: Int, onPick: (Int) -> Unit) {
+    val items = listOf(
+        Triple(UiState.TAB_BROWSER, "المتصفح", Icons.Filled.Public),
+        Triple(UiState.TAB_DOWNLOADS, "المكتبة", Icons.Filled.VideoLibrary),
+        Triple(UiState.TAB_VAULT, "الخزنة", Icons.Filled.Lock),
+        Triple(UiState.TAB_SETTINGS, "الإعدادات", Icons.Filled.Settings),
+    )
+    androidx.compose.material3.Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+        color = androidx.compose.ui.graphics.Color(0xFF1E1A13),
+        border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0xFF3A3123)),
+        shadowElevation = 12.dp,
+        modifier = Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().height(66.dp),
+    ) {
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxSize().padding(horizontal = 6.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceAround,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            items.forEach { (id, label, icon) ->
+                val on = tab == id
+                val shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                androidx.compose.foundation.layout.Row(
+                    Modifier.height(48.dp).clip(shape)
+                        .then(if (on) Modifier.background(GoldBrush, shape) else Modifier)
+                        .clickable { onPick(id) }
+                        .animateContentSize(androidx.compose.animation.core.spring(stiffness = 500f))
+                        .padding(horizontal = if (on) 16.dp else 12.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    val tint = if (on) androidx.compose.ui.graphics.Color(0xFF14100A) else androidx.compose.ui.graphics.Color(0xFFA89B86)
+                    BadgedBox(badge = { if (id == UiState.TAB_DOWNLOADS && activeDownloads > 0 && !on) Badge { Text("$activeDownloads") } }) {
+                        Icon(icon, label, tint = tint)
+                    }
+                    if (on) {
+                        androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                        Text(label, color = tint, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
     }
 }

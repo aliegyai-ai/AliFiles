@@ -6,11 +6,60 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.ali.files.R
+import androidx.compose.ui.draw.drawBehind
+
+// Fonts: Readex Pro for everything you read, Reem Kufi (Kufic) for titles and the app's name
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+private fun variable(res: Int, w: Int) = Font(res, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
+
+val Readex = FontFamily(
+    variable(R.font.readex_pro, 300), variable(R.font.readex_pro, 400), variable(R.font.readex_pro, 500),
+    variable(R.font.readex_pro, 600), variable(R.font.readex_pro, 700),
+)
+val Kufi = FontFamily(variable(R.font.reem_kufi, 500), variable(R.font.reem_kufi, 600), variable(R.font.reem_kufi, 700))
+
+/** the gold used across the app, as a gradient (buttons, the selected tab, progress) */
+val GoldBrush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFFF2D58E), Color(0xFFC9963C)))
+/** the screen background: warm light from the top corner */
+fun androidx.compose.ui.Modifier.appBackground() = this.drawBehind {
+    drawRect(Color(0xFF13110D))
+    drawRect(
+        androidx.compose.ui.graphics.Brush.radialGradient(
+            listOf(Color(0xFF2A2216), Color(0x0013110D)),
+            center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, 0f), radius = size.height * 0.65f,
+        ),
+    )
+}
+
+private val base = Typography()
+private fun TextStyle.r() = copy(fontFamily = Readex)
+private fun TextStyle.k() = copy(fontFamily = Kufi, fontWeight = FontWeight.Bold)
+private val AppTypography = Typography(
+    displayLarge = base.displayLarge.k(), displayMedium = base.displayMedium.k(), displaySmall = base.displaySmall.k(),
+    headlineLarge = base.headlineLarge.k(), headlineMedium = base.headlineMedium.k(), headlineSmall = base.headlineSmall.k(),
+    titleLarge = base.titleLarge.r().copy(fontWeight = FontWeight.SemiBold), titleMedium = base.titleMedium.r().copy(fontWeight = FontWeight.SemiBold), titleSmall = base.titleSmall.r(),
+    bodyLarge = base.bodyLarge.r(), bodyMedium = base.bodyMedium.r(), bodySmall = base.bodySmall.r(),
+    labelLarge = base.labelLarge.r().copy(fontWeight = FontWeight.SemiBold), labelMedium = base.labelMedium.r(), labelSmall = base.labelSmall.r(),
+)
+private val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp), small = RoundedCornerShape(14.dp), medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp), extraLarge = RoundedCornerShape(30.dp),
+)
 
 // Dark charcoal with gold accents
 private val Dark = darkColorScheme(
     primary = Color(0xFFD4A94F),
-    onPrimary = Color(0xFF1A1408),
+    onPrimary = Color(0xFF14100A),
     primaryContainer = Color(0xFF4A3A16),
     onPrimaryContainer = Color(0xFFF7E3AE),
     secondary = Color(0xFFE8C872),
@@ -18,20 +67,20 @@ private val Dark = darkColorScheme(
     secondaryContainer = Color(0xFF3A3020),
     onSecondaryContainer = Color(0xFFF7E3AE),
     tertiary = Color(0xFF7FB685),
-    background = Color(0xFF0E0D0B),
-    onBackground = Color(0xFFF3EDE0),
-    surface = Color(0xFF0E0D0B),
-    onSurface = Color(0xFFF3EDE0),
-    surfaceVariant = Color(0xFF2A261F),
-    onSurfaceVariant = Color(0xFFA39A88),
-    surfaceContainerLowest = Color(0xFF0A0908),
-    surfaceContainerLow = Color(0xFF141210),
-    surfaceContainer = Color(0xFF181612),
-    surfaceContainerHigh = Color(0xFF221F19),
-    surfaceContainerHighest = Color(0xFF2B2720),
-    outline = Color(0xFF5A5040),
-    outlineVariant = Color(0xFF3A3328),
-    error = Color(0xFFE0715A),
+    background = Color(0xFF13110D),
+    onBackground = Color(0xFFF3EBDD),
+    surface = Color(0xFF13110D),
+    onSurface = Color(0xFFF3EBDD),
+    surfaceVariant = Color(0xFF2A2419),
+    onSurfaceVariant = Color(0xFFA89B86),
+    surfaceContainerLowest = Color(0xFF0E0C09),
+    surfaceContainerLow = Color(0xFF181510),
+    surfaceContainer = Color(0xFF1E1A13),
+    surfaceContainerHigh = Color(0xFF262017),
+    surfaceContainerHighest = Color(0xFF2F281C),
+    outline = Color(0xFF5A4C34),
+    outlineVariant = Color(0xFF3A3123),
+    error = Color(0xFFE88A70),
 )
 
 private val Light = lightColorScheme(
@@ -61,5 +110,5 @@ private val Light = lightColorScheme(
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
+    MaterialTheme(colorScheme = Dark, typography = AppTypography, shapes = AppShapes, content = content)
 }
