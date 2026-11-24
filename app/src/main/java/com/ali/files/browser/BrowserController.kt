@@ -58,6 +58,8 @@ class BrowserTab(val id: Long, val incognito: Boolean) {
     lateinit var webView: WebView
     /** the WebView wrapped in its own pull-to-refresh frame (one per tab, so switching tabs never breaks it) */
     lateinit var frame: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    /** the finger is on a list that scrolls by itself inside the page (e.g. a YouTube playlist) */
+    @Volatile var touchInInnerList = false
     val title = mutableStateOf("")
     val url = mutableStateOf("")
     val progress = mutableIntStateOf(100)
@@ -267,7 +269,9 @@ class BrowserController(private val activity: Activity) {
             setProgressBackgroundColorSchemeColor(0xFF221F19.toInt())
             setOnRefreshListener { tab.webView.reload() }
             // pull only works when the page itself is at the very top
-            setOnChildScrollUpCallback { _, _ -> tab.webView.scrollY > 0 }
+            // pull-to-refresh only from the top of the page itself — never while scrolling a list
+            // inside the page (YouTube's playlist, comments…), which used to hijack the scroll
+            setOnChildScrollUpCallback { _, _ -> tab.webView.scrollY > 0 || tab.touchInInnerList }
         }
         tabs.add(tab)
         if (select || currentId.longValue < 0) {
@@ -662,12 +666,14 @@ class BrowserController(private val activity: Activity) {
         wv.addJavascriptInterface(AdFilter.Bridge(), AdFilter.BRIDGE)
         // videos keep playing in the background, with controls in the notification
         wv.addJavascriptInterface(BgMedia.Bridge(activity, tab), BgMedia.BRIDGE)
+        wv.addJavascriptInterface(InnerScroll.Bridge(tab), InnerScroll.BRIDGE)
         if (docStartScript) {
             // private tabs: anti-fingerprinting, before any of the site's own code
             if (tab.incognito) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, PrivacyShield.script(), setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, AdFilter.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
             if (AppSettings.bgPlay.value) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, BgMedia.SCRIPT, setOf("*")) }
+            runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, InnerScroll.SCRIPT, setOf("*")) }
         }
 
         // hide the toolbar while reading down the page, show it again when scrolling up
