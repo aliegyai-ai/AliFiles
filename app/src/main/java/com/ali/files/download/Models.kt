@@ -52,6 +52,9 @@ data class DownloadItem(
     val audioKbps: Int = 0,
     val audioFormat: String = "mp3",
     val audioMono: Boolean = false,
+    /** from a playlist: the library folder it goes in, and the playlist (in the app) it joins */
+    val libFolder: String? = null,
+    val group: String? = null,
     val note: String? = null,
 ) {
     val fraction: Float

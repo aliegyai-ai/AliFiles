@@ -431,7 +431,7 @@ fun LibraryScreen() {
         }
     }
     confirmDeleteMany?.let { l ->
-        AlertDialog(
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = { confirmDeleteMany = null },
             title = { Text("تمسح ${l.size} ملف؟") },
             text = { Text("هيروحوا سلة المهملات، وتقدر ترجّعهم خلال 30 يوم.") },
@@ -693,7 +693,7 @@ private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit =
     if (pickList) PlaylistPicker(f) { pickList = false; onDismiss() }
     if (tone) ToneDialog(f) { tone = false; onDismiss() }
     if (shrink) ShrinkDialog(f) { shrink = false; onDismiss() }
-    if (confirmDelete) AlertDialog(
+    if (confirmDelete) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { confirmDelete = false },
         title = { Text("تمسح «${f.title}»؟") },
         text = { Text("هيروح سلة المهملات، وتقدر ترجّعه خلال 30 يوم.") },
@@ -716,7 +716,7 @@ internal fun Action(icon: androidx.compose.ui.graphics.vector.ImageVector, label
 private fun PlaylistPicker(f: LibFile, onDone: () -> Unit) {
     val lists by Library.playlists.collectAsState()
     var creating by remember { mutableStateOf(false) }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDone,
         title = { Text("ضيف لقايمة تشغيل") },
         text = {
@@ -738,7 +738,7 @@ private fun PlaylistPicker(f: LibFile, onDone: () -> Unit) {
 @Composable
 internal fun NameDialog(title: String, initial: String, onDone: (String?) -> Unit) {
     var text by remember { mutableStateOf(initial) }
-    AlertDialog(
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { onDone(null) },
         title = { Text(title) },
         text = { OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true) },

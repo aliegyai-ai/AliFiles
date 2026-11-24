@@ -123,3 +123,14 @@ fun AppTheme(content: @Composable () -> Unit) {
 fun androidx.compose.ui.Modifier.sheetBody(): androidx.compose.ui.Modifier =
     this.verticalScroll(androidx.compose.foundation.rememberScrollState())
         .then(androidx.compose.ui.Modifier.navigationBarsPadding())
+
+/**
+ * A sheet that a stray tap or swipe can't close (it closes from its own buttons) — for sheets that
+ * are working on something, like reading a video's qualities.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@androidx.compose.runtime.Composable
+fun stickySheetState() = androidx.compose.material3.rememberModalBottomSheetState(
+    skipPartiallyExpanded = true,
+    confirmValueChange = { it != androidx.compose.material3.SheetValue.Hidden },
+)

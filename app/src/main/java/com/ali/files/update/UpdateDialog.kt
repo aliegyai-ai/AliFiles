@@ -48,7 +48,7 @@ fun UpdateDialog(manual: Boolean, onClose: () -> Unit) {
     when (val s = state) {
         is UpdateState.Available -> {
             if (!manual && Updater.dismissedCode == s.info.versionCode) return
-            AlertDialog(
+            AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
                 onDismissRequest = close,
                 icon = { Icon(Icons.Filled.SystemUpdate, null) },
                 title = { Text("نسخة جديدة ${s.info.versionName} متاحة") },
@@ -66,7 +66,7 @@ fun UpdateDialog(manual: Boolean, onClose: () -> Unit) {
             )
         }
 
-        is UpdateState.Downloading -> AlertDialog(
+        is UpdateState.Downloading -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = {},
             title = { Text("بينزّل نسخة ${s.info.versionName}…") },
             text = {
@@ -80,7 +80,7 @@ fun UpdateDialog(manual: Boolean, onClose: () -> Unit) {
 
         is UpdateState.Ready -> {
             val allowed = Updater.canInstall(ctx)
-            AlertDialog(
+            AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
                 onDismissRequest = onClose,
                 icon = { Icon(Icons.Filled.SystemUpdate, null) },
                 title = { Text("نسخة ${s.info.versionName} جاهزة") },
@@ -99,16 +99,16 @@ fun UpdateDialog(manual: Boolean, onClose: () -> Unit) {
             )
         }
 
-        is UpdateState.Checking -> if (manual) AlertDialog(
+        is UpdateState.Checking -> if (manual) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = close, title = { Text("بيدوّر على تحديث…") }, text = { LinearProgressIndicator(Modifier.fillMaxWidth()) }, confirmButton = {},
         )
 
-        is UpdateState.UpToDate -> if (manual) AlertDialog(
+        is UpdateState.UpToDate -> if (manual) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = close, title = { Text("عندك آخر نسخة ✅") }, text = { Text("النسخة $current") },
             confirmButton = { TextButton(onClick = close) { Text("تمام") } },
         )
 
-        is UpdateState.Failed -> if (manual) AlertDialog(
+        is UpdateState.Failed -> if (manual) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
             onDismissRequest = close, title = { Text("التحديث معرفش يكمّل") }, text = { Text(s.message) },
             confirmButton = { TextButton(onClick = close) { Text("تمام") } },
         )
