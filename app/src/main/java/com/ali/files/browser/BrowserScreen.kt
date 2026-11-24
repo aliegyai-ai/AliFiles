@@ -7,6 +7,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.MusicNote
+import com.ali.files.library.toTrack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -318,10 +323,15 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
 
         // ---------------------------------------------------- one slim toolbar (slides away while scrolling down)
         AnimatedVisibility(visible = barsVisible, enter = expandVertically(), exit = shrinkVertically()) {
-            Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow).navigationBarsPadding()) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = if (c.privateMode.value) Color(0xFF1F1A28) else Color(0xFF1E1A13),
+                border = BorderStroke(1.dp, if (c.privateMode.value) Color(0xFF3E3450) else Color(0xFF3A3123)),
+                shadowElevation = 14.dp,
+                modifier = Modifier.navigationBarsPadding().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp),
+            ) {
                 Row(
-                    Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 4.dp),
+                    Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val canBack = if (home) tab?.url?.value?.isNotBlank() == true else true
@@ -338,7 +348,19 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                     // gold only when there's really a video to take: an open video page (not a feed with previews)
                     val singleVideo = !home && tab?.url?.value?.let { VideoExtractor.isSingleVideoPage(it) } == true
                     val hasVideo = singleVideo || found > 0 || (!home && !videoSite && tab?.playing?.value == true)
-                    BarButton(enabled = !home && tab != null, onClick = { tab?.let { t -> downloadAction(c, t) { showMedia = true } } }) {
+                    // a video on the page: a gold «حمّل» pill right in the bar
+                    androidx.compose.animation.AnimatedVisibility(hasVideo, enter = androidx.compose.animation.scaleIn() + androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut()) {
+                        Row(
+                            Modifier.padding(horizontal = 2.dp).height(42.dp).clip(RoundedCornerShape(14.dp)).background(com.ali.files.ui.GoldBrush)
+                                .clickable { tab?.let { t -> downloadAction(c, t) { showMedia = true } } }.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.Download, null, Modifier.size(20.dp), tint = Color(0xFF14100A))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (found > 1) "حمّل ($found)" else "حمّل", color = Color(0xFF14100A), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
+                    if (!hasVideo) BarButton(enabled = !home && tab != null, onClick = { tab?.let { t -> downloadAction(c, t) { showMedia = true } } }) {
                         BadgedBox(badge = {
                             if (found > 1) Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
                                 Text(if (found > 9) "+9" else "$found", fontSize = 9.sp)
@@ -652,12 +674,26 @@ private fun StartPage(c: BrowserController, ui: UiState) {
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
     ) {
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(22.dp))
         if (c.privateMode.value) {
             PrivateDashboard(c)
         } else {
-            Text(greeting, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-            Text("هتحمّل إيه النهارده؟", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            // the app's mark, a greeting, and the private space one tap away
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFF221C12)), contentAlignment = Alignment.Center) {
+                    Icon(androidx.compose.ui.res.painterResource(com.ali.files.R.drawable.ic_launcher_fg), null, tint = Color.Unspecified, modifier = Modifier.size(52.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(greeting.substringBefore(" يا"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Text("يا علي", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 21.sp))
+                }
+                Box(
+                    Modifier.size(44.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFF231E2C))
+                        .border(1.dp, Color(0xFF4A3F5E), RoundedCornerShape(15.dp)).clickable { requestPrivate(ctx, c) },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Filled.VisibilityOff, "التصفح الخفي", tint = Color(0xFFB896E6), modifier = Modifier.size(21.dp)) }
+            }
         }
         Spacer(Modifier.height(16.dp))
 
@@ -719,73 +755,27 @@ private fun StartPage(c: BrowserController, ui: UiState) {
             }
         }
 
-        // speed dial: the big sites + the user's bookmarks
+        // your library, one tap away
+        if (!c.privateMode.value) {
+            Spacer(Modifier.height(18.dp))
+            HomeLibraryTiles(ui, downloads)
+            ContinueRow(ui)
+        }
+
+        // sites: the big ones + your own (long-press to remove)
         Spacer(Modifier.height(22.dp))
         val muted = MaterialTheme.colorScheme.onSurfaceVariant
         val tiles = buildList {
             defaultSites.forEach { s -> add(Tile(s.name, s.letter, s.color, onClick = { c.load(s.url) })) }
-            c.bookmarks.take(10).forEachIndexed { i, b ->
+            c.bookmarks.take(12).forEachIndexed { i, b ->
                 add(Tile(b.title, hostOf(b.url).take(1).uppercase(), siteColors[i % siteColors.size], onClick = { c.load(b.url) }, onLongClick = { removing = b }))
             }
             add(Tile("إضافة", "+", muted, dashed = true, onClick = { adding = true }))
         }
-        tiles.chunked(4).forEach { row ->
-            Row(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
-                row.forEach { t ->
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        SiteTile(t.name, t.letter, t.color, t.dashed, t.onClick, t.onLongClick)
-                    }
-                }
-                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
-            }
-        }
-
-        // recent downloads
-        val recent = downloads.take(3)
-        if (recent.isNotEmpty() && !c.privateMode.value) {
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("آخر التحميلات", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { ui.tab.intValue = UiState.TAB_DOWNLOADS }) { Text("الكل") }
-            }
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    recent.forEachIndexed { i, d ->
-                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        Row(
-                            Modifier.fillMaxWidth().clickable { ui.tab.intValue = UiState.TAB_DOWNLOADS }.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(gold.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(if (d.status == DStatus.COMPLETED) Icons.Filled.CheckCircle else Icons.Filled.Movie, null, tint = gold, modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(d.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-                                if (d.active && d.fraction >= 0f) {
-                                    Spacer(Modifier.height(6.dp))
-                                    LinearProgressIndicator(
-                                        progress = { d.fraction }, color = gold,
-                                        modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(50)),
-                                    )
-                                } else {
-                                    Text(
-                                        when (d.status) {
-                                            DStatus.COMPLETED -> formatBytes(d.total.coerceAtLeast(d.downloaded))
-                                            DStatus.FAILED -> "فشل"
-                                            DStatus.PAUSED -> "متوقف"
-                                            else -> d.note ?: "بيبدأ…"
-                                        },
-                                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        Text("مواقعك", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            tiles.forEach { t -> SiteTile(t.name, t.letter, t.color, t.dashed, t.onClick, t.onLongClick) }
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -809,15 +799,111 @@ private fun SiteTile(name: String, letter: String, color: Color, dashed: Boolean
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            Modifier.size(54.dp).clip(RoundedCornerShape(16.dp))
-                .background(if (dashed) Color.Transparent else color.copy(alpha = 0.16f))
-                .then(if (dashed) Modifier.border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(16.dp)) else Modifier),
+            Modifier.size(52.dp).clip(CircleShape)
+                .background(if (dashed) Color.Transparent else color.copy(alpha = 0.14f))
+                .border(1.dp, if (dashed) color.copy(alpha = 0.5f) else color.copy(alpha = 0.25f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text(letter, color = color, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(6.dp))
-        Text(name, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(name, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.widthIn(max = 64.dp))
+    }
+}
+
+/** Start page: four big tiles into the library (videos, songs, downloading now, the vault). */
+@Composable
+private fun HomeLibraryTiles(ui: UiState, downloads: List<com.ali.files.download.DownloadItem>) {
+    val files by com.ali.files.library.Library.files.collectAsState()
+    val vault by com.ali.files.vault.Vault.entries.collectAsState()
+    val videos = files.filter { it.kind == com.ali.files.util.FileKind.VIDEO }
+    val songs = files.filter { it.kind == com.ali.files.util.FileKind.AUDIO }
+    val active = downloads.filter { it.active }
+    val speed = active.sumOf { it.speed }
+    fun lib(filter: Int) { com.ali.files.library.LibraryTabState.open(filter); ui.tab.intValue = UiState.TAB_DOWNLOADS }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HomeTile("فيديوهات", "${videos.size}", formatBytes(videos.sumOf { it.size }), Icons.Filled.Movie, Color(0xFFE8B865), Modifier.weight(1f)) { lib(1) }
+            HomeTile("أغاني", "${songs.size}", formatBytes(songs.sumOf { it.size }), Icons.Filled.MusicNote, Color(0xFF9CC7E8), Modifier.weight(1f)) { lib(2) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HomeTile(
+                if (active.isEmpty()) "التحميلات" else "بيتحمّل", "${active.size}",
+                if (active.isEmpty()) "مفيش حاجة شغالة" else "${formatBytes(speed)}/ث",
+                Icons.Filled.Download, Color(0xFF7FB685), Modifier.weight(1f),
+            ) { com.ali.files.library.LibraryTabState.page.intValue = 1; ui.tab.intValue = UiState.TAB_DOWNLOADS }
+            HomeTile("الخزنة", if (com.ali.files.vault.Vault.unlocked.value) "${vault.size}" else "", "مقفولة بالبصمة", Icons.Filled.Lock, Color(0xFFB896E6), Modifier.weight(1f)) {
+                ui.tab.intValue = UiState.TAB_VAULT
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeTile(label: String, number: String, sub: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick, shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainerHighest), modifier = modifier,
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(color.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = color, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.weight(1f))
+                Text(number, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(label, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text(sub, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+    }
+}
+
+/** «كمّل من مكان ما وقفت»: what you played lately (or the newest files), with how far you got. */
+@Composable
+private fun ContinueRow(ui: UiState) {
+    val files by com.ali.files.library.Library.files.collectAsState()
+    LaunchedEffect(Unit) { com.ali.files.player.PlayerHub.loadRecent() }
+    val recentIds = com.ali.files.player.PlayerHub.recent.value
+    val byPath = files.associateBy { it.path }
+    val playable = files.filter { it.kind == com.ali.files.util.FileKind.VIDEO || it.kind == com.ali.files.util.FileKind.AUDIO }
+    val list = (recentIds.mapNotNull { byPath[it] } + playable).distinctBy { it.path }.take(8)
+    if (list.isEmpty()) return
+    Spacer(Modifier.height(22.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(if (recentIds.isNotEmpty()) "كمّل من مكان ما وقفت" else "آخر حاجات حمّلتها", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        TextButton(onClick = { com.ali.files.library.LibraryTabState.open(0); ui.tab.intValue = UiState.TAB_DOWNLOADS }) { Text("المكتبة") }
+    }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        list.forEach { f -> ContinueCard(f, list) }
+    }
+}
+
+@Composable
+private fun ContinueCard(f: com.ali.files.library.LibFile, all: List<com.ali.files.library.LibFile>) {
+    val thumb by androidx.compose.runtime.produceState<android.graphics.Bitmap?>(null, f.path) { value = com.ali.files.library.Library.thumbnail(f) }
+    val dur by androidx.compose.runtime.produceState(0L, f.path) { value = com.ali.files.library.Library.duration(f) }
+    val progress = com.ali.files.player.PlayerHub.progressOf(f.path)
+    val gold = MaterialTheme.colorScheme.primary
+    Column(
+        Modifier.width(150.dp).clip(RoundedCornerShape(14.dp)).clickable {
+            val same = all.filter { it.kind == f.kind }
+            com.ali.files.player.PlayerHub.play(same.map { it.toTrack() }, same.indexOf(f).coerceAtLeast(0))
+        },
+    ) {
+        Box(Modifier.fillMaxWidth().height(90.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(gold.copy(alpha = 0.25f), Color(0xFF1A150E))))) {
+            val b = thumb
+            if (b != null) androidx.compose.foundation.Image(b.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+            else Icon(if (f.kind == com.ali.files.util.FileKind.AUDIO) Icons.Filled.MusicNote else Icons.Filled.Movie, null, tint = gold, modifier = Modifier.align(Alignment.Center))
+            if (dur > 0) Text(
+                com.ali.files.player.formatTime(dur), color = Color.White, fontSize = 11.sp,
+                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp),
+            )
+            if (progress > 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress).height(3.dp).background(gold))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(f.title, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
     }
 }
 
