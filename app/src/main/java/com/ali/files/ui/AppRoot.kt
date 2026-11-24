@@ -165,6 +165,10 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         onSkip = { com.ali.files.util.AppSettings.setUserName("") },
     ) { com.ali.files.util.AppSettings.setUserName(it) }
 
+    // ---------------------------------------------- downloads keep going with the screen off: ask the battery saver once
+    val anyActive = downloads.any { it.active }
+    LaunchedEffect(anyActive) { if (anyActive) (ctx as? android.app.Activity)?.let { com.ali.files.util.KeepAwake.askBatteryExemption(it) } }
+
     // ---------------------------------------------- «شوف الجديد» after an update
     var whatsNew by remember { mutableStateOf(com.ali.files.update.AutoUpdate.whatsNew(ctx)) }
     whatsNew?.let { (name, notes) ->

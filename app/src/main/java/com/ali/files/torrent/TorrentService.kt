@@ -27,9 +27,12 @@ class TorrentService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private val awake by lazy { com.ali.files.util.KeepAwake(this, "torrents") }
+
     override fun onCreate() {
         super.onCreate()
         goForeground(build(TorrentEngine.items.value))
+        awake.on()
         scope.launch {
             delay(3000)   // let a just-added torrent reach the list
             TorrentEngine.items.collect { list ->
@@ -47,7 +50,7 @@ class TorrentService : Service() {
         return START_NOT_STICKY
     }
 
-    override fun onDestroy() { scope.cancel(); super.onDestroy() }
+    override fun onDestroy() { awake.off(); scope.cancel(); super.onDestroy() }
 
     private fun goForeground(n: Notification) =
         ServiceCompat.startForeground(this, NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
