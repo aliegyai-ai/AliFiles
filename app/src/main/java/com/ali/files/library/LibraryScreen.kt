@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -684,7 +685,7 @@ private fun PlaylistsView(lists: List<Playlist>, open: Playlist?, onOpen: (Playl
                 Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null); Spacer(Modifier.width(6.dp)); Text("قايمة تشغيل جديدة")
             }
         }
-        items(lists, key = { it.name }) { p ->
+        lazyItems(lists, key = { it.name }) { p ->
             Surface(onClick = { onOpen(p) }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = MaterialTheme.colorScheme.primary)
@@ -750,7 +751,7 @@ private fun PlaylistDetail(current: Playlist, onOpen: (Playlist?) -> Unit, onFil
                 else if (order.size > 1) Text("اسحب ☰ لتغيير الترتيب، أو دوس عليها لخيارات النقل", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
             }
         }
-        items(order, key = { it.path }) { f ->
+        lazyItems(order, key = { it.path }) { f ->
             val dragging = dragKey == f.path
             Row(
                 Modifier.fillMaxWidth()
