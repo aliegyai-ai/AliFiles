@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -296,6 +297,7 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
 
 
 /** The floating bottom bar: the open section is a gold pill with its name. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun FloatingNav(tab: Int, activeDownloads: Int, onPick: (Int) -> Unit) {
     val items = listOf(
@@ -321,7 +323,14 @@ private fun FloatingNav(tab: Int, activeDownloads: Int, onPick: (Int) -> Unit) {
                 androidx.compose.foundation.layout.Row(
                     Modifier.height(48.dp).clip(shape)
                         .then(if (on) Modifier.background(GoldBrush, shape) else Modifier)
-                        .clickable { onPick(id) }
+                        .combinedClickable(
+                            onClick = { onPick(id) },
+                            // long press on «المكتبة» → «اسأل مكتبتك»
+                            onLongClick = if (id == UiState.TAB_DOWNLOADS) ({
+                                onPick(id); com.ali.files.library.LibraryTabState.page.intValue = 0
+                                com.ali.files.library.LibraryTabState.searchOpen.value = true
+                            }) else null,
+                        )
                         .animateContentSize(androidx.compose.animation.core.spring(stiffness = 500f))
                         .padding(horizontal = if (on) 16.dp else 12.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
