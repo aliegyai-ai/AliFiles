@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarResult
@@ -122,13 +123,19 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
                     }
                 }
             }
-            if (!browser.fullscreen.value && !browser.pipMode.value && tab != UiState.TAB_BROWSER) FloatingNav(tab, activeCount) { ui.tab.intValue = it }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !browser.fullscreen.value && !browser.pipMode.value && tab != UiState.TAB_BROWSER && !ui.navHidden.value,
+                enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(220)) { it } + androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(220)),
+                exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(180)) { it } + androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(180)),
+            ) { FloatingNav(tab, activeCount) { ui.tab.intValue = it } }
             }
         },
     ) { pad ->
         // back from downloads / vault / settings returns to the browser instead of closing the app
         androidx.activity.compose.BackHandler(enabled = tab != UiState.TAB_BROWSER) { ui.tab.intValue = UiState.TAB_BROWSER }
-        Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).imePadding()) {
+        // the bar is back whenever you change screen
+        androidx.compose.runtime.LaunchedEffect(tab) { ui.navHidden.value = false }
+        Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).imePadding().nestedScroll(ui.navScroll)) {
             // a soft cross-fade between the main screens
             androidx.compose.animation.AnimatedContent(
                 targetState = tab,

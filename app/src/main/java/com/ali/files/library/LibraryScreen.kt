@@ -31,10 +31,21 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -82,6 +93,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -90,13 +103,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -661,24 +672,20 @@ private fun PlaylistsView(lists: List<Playlist>, open: Playlist?, onOpen: (Playl
     var creating by remember { mutableStateOf(false) }
     val current = open?.let { o -> lists.firstOrNull { it.name == o.name } }
     if (current != null) {
-        val items = Library.filesOf(current)
-        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onOpen(null) }) { Text("← القوايم") }
-                Text(current.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
-                if (items.isNotEmpty()) IconButton(onClick = { PlayerHub.play(items.map { it.toTrack() }) }) { Icon(Icons.Filled.PlayArrow, "شغّل", tint = MaterialTheme.colorScheme.primary) }
-                IconButton(onClick = { Library.deletePlaylist(current.name); onOpen(null) }) { Icon(Icons.Filled.Delete, "امسح القايمة") }
-            }
-            if (items.isEmpty()) Text("القايمة فاضية. من ⋮ على أي ملف اختار «ضيف لقايمة تشغيل».", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
-            items.forEach { f -> FileRow(f, favorite = false, onClick = { onFile(f, items) }, onMenu = { onMenu(f) }) }
-        }
+        PlaylistDetail(current, onOpen, onFile, onMenu)
         return
     }
-    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null); Spacer(Modifier.width(6.dp)); Text("قايمة تشغيل جديدة")
+    androidx.compose.foundation.lazy.LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 90.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item(key = "new") {
+            OutlinedButton(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null); Spacer(Modifier.width(6.dp)); Text("قايمة تشغيل جديدة")
+            }
         }
-        lists.forEach { p ->
+        lazyItems(lists, key = { it.name }) { p ->
             Surface(onClick = { onOpen(p) }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = MaterialTheme.colorScheme.primary)
@@ -690,6 +697,116 @@ private fun PlaylistsView(lists: List<Playlist>, open: Playlist?, onOpen: (Playl
         }
     }
     if (creating) NameDialog("قايمة تشغيل جديدة", "") { name -> creating = false; if (name != null) Library.createPlaylist(name) }
+}
+
+/** One playlist: scroll smoothly, drag ☰ to re-order (or tap ☰ for up / down / first / last), sort in one go. */
+@Composable
+private fun PlaylistDetail(current: Playlist, onOpen: (Playlist?) -> Unit, onFile: (LibFile, List<LibFile>) -> Unit, onMenu: (LibFile) -> Unit) {
+    val items = Library.filesOf(current)
+    val order = remember(current.paths, items.size) { mutableStateListOf<LibFile>().also { it.addAll(items) } }
+    val lazy = androidx.compose.foundation.lazy.rememberLazyListState()
+    var dragKey by remember { mutableStateOf<String?>(null) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    var rowMenu by remember { mutableStateOf<String?>(null) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val gold = MaterialTheme.colorScheme.primary
+
+    fun commit() {
+        Library.reorderPlaylist(current.name, order.map { it.path } + current.paths.filter { p -> order.none { it.path == p } })
+    }
+    fun moveTo(path: String, to: Int) {
+        val from = order.indexOfFirst { it.path == path }
+        if (from < 0) return
+        val t = to.coerceIn(0, order.lastIndex)
+        if (t == from) return
+        order.add(t, order.removeAt(from)); commit()
+    }
+
+    androidx.compose.foundation.lazy.LazyColumn(
+        Modifier.fillMaxSize(), state = lazy,
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 90.dp),
+    ) {
+        item(key = "header") {
+            Column {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { onOpen(null) }) { Text("← القوايم") }
+                    Text(current.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (order.size > 1) Box {
+                        IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "رتّب القايمة") }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            listOf<Pair<String, () -> Unit>>(
+                                "بالاسم (أ ← ي)" to { order.sortBy { it.title.lowercase() } },
+                                "الأحدث الأول" to { order.sortByDescending { it.modified } },
+                                "الأقدم الأول" to { order.sortBy { it.modified } },
+                                "عشوائي" to { order.shuffle() },
+                            ).forEach { (label, act) ->
+                                DropdownMenuItem(text = { Text(label) }, onClick = { sortMenu = false; act(); commit() })
+                            }
+                        }
+                    }
+                    if (order.isNotEmpty()) IconButton(onClick = { PlayerHub.play(order.map { it.toTrack() }) }) { Icon(Icons.Filled.PlayArrow, "شغّل", tint = gold) }
+                    IconButton(onClick = { Library.deletePlaylist(current.name); onOpen(null) }) { Icon(Icons.Filled.Delete, "امسح القايمة") }
+                }
+                if (order.isEmpty()) Text("القايمة فاضية. من ⋮ على أي ملف اختار «ضيف لقايمة تشغيل».", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                else if (order.size > 1) Text("اسحب ☰ لتغيير الترتيب، أو دوس عليها لخيارات النقل", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+            }
+        }
+        lazyItems(order, key = { it.path }) { f ->
+            val dragging = dragKey == f.path
+            Row(
+                Modifier.fillMaxWidth()
+                    .then(if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = dragY; shadowElevation = 12f } else Modifier.animateItem())
+                    .background(if (dragging) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent, RoundedCornerShape(12.dp)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box {
+                    Icon(
+                        Icons.Filled.DragHandle, "رتّب",
+                        tint = if (dragging) gold else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(44.dp).padding(10.dp)
+                            .clickable { rowMenu = f.path }
+                            .pointerInput(f.path) {
+                                detectDragGestures(
+                                    onDragStart = { dragKey = f.path; dragY = 0f },
+                                    onDrag = { change, amt ->
+                                        change.consume()
+                                        dragY += amt.y
+                                        val info = lazy.layoutInfo.visibleItemsInfo
+                                        val cur = info.firstOrNull { it.key == f.path } ?: return@detectDragGestures
+                                        val mid = cur.offset + cur.size / 2 + dragY
+                                        val tgt = info.firstOrNull { it.key != f.path && it.key != "header" && mid >= it.offset && mid <= it.offset + it.size }
+                                        if (tgt != null) {
+                                            val from = order.indexOfFirst { it.path == f.path }
+                                            val to = order.indexOfFirst { it.path == tgt.key }
+                                            if (from >= 0 && to >= 0) { order.add(to, order.removeAt(from)); dragY -= (tgt.offset - cur.offset) }
+                                        }
+                                        // near the top / bottom edge: keep scrolling
+                                        val vp = lazy.layoutInfo.viewportEndOffset
+                                        val y = cur.offset + cur.size / 2 + dragY
+                                        if (y < 80f) lazy.dispatchRawDelta(-24f) else if (y > vp - 80f) lazy.dispatchRawDelta(24f)
+                                    },
+                                    onDragEnd = { dragKey = null; dragY = 0f; commit() },
+                                    onDragCancel = { dragKey = null; dragY = 0f; commit() },
+                                )
+                            },
+                    )
+                    DropdownMenu(expanded = rowMenu == f.path, onDismissRequest = { rowMenu = null }) {
+                        val i = order.indexOfFirst { it.path == f.path }
+                        if (i > 0) {
+                            DropdownMenuItem(text = { Text("لأول القايمة") }, onClick = { rowMenu = null; moveTo(f.path, 0) })
+                            DropdownMenuItem(text = { Text("لفوق واحد") }, onClick = { rowMenu = null; moveTo(f.path, i - 1) })
+                        }
+                        if (i < order.lastIndex) {
+                            DropdownMenuItem(text = { Text("لتحت واحد") }, onClick = { rowMenu = null; moveTo(f.path, i + 1) })
+                            DropdownMenuItem(text = { Text("لآخر القايمة") }, onClick = { rowMenu = null; moveTo(f.path, order.lastIndex) })
+                        }
+                        DropdownMenuItem(text = { Text("شيله من القايمة") }, onClick = { rowMenu = null; order.remove(f); Library.removeFromPlaylist(current.name, f.path) })
+                    }
+                }
+                Box(Modifier.weight(1f)) { FileRow(f, favorite = false, onClick = { onFile(f, order.toList()) }, onMenu = { onMenu(f) }) }
+            }
+        }
+    }
 }
 
 // ============================================================ actions on one file

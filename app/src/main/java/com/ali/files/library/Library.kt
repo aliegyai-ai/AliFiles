@@ -585,6 +585,10 @@ object Library {
         savePlaylists(if (p == null) l + Playlist(name, paths) else l.map { if (it.name == name) it.copy(paths = paths) else it })
     }
 
+    /** the playlist's order, as you arranged it */
+    fun reorderPlaylist(name: String, paths: List<String>) =
+        savePlaylists(_playlists.value.map { if (it.name == name) it.copy(paths = paths.distinct()) else it })
+
     fun removeFromPlaylist(name: String, path: String) =
         savePlaylists(_playlists.value.map { if (it.name == name) it.copy(paths = it.paths - path) else it })
 
