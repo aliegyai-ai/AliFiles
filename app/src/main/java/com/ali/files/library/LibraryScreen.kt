@@ -211,11 +211,6 @@ fun LibraryScreen() {
     }
     var menuFor by remember { mutableStateOf<LibFile?>(null) }
     var openList by remember { mutableStateOf<Playlist?>(null) }
-    androidx.compose.runtime.LaunchedEffect(LibraryTabState.openPlaylist.value) {
-        val n = LibraryTabState.openPlaylist.value ?: return@LaunchedEffect
-        Library.playlists.value.firstOrNull { it.name == n }?.let { filter = LFilter.LISTS; customOpen = null; openList = it }
-        LibraryTabState.openPlaylist.value = null
-    }
     val folders by Library.folders.collectAsState()
     val meta by Library.meta.collectAsState()
     val pins by Library.pinned.collectAsState()
@@ -270,6 +265,11 @@ fun LibraryScreen() {
     val assigned by Library.cats.collectAsState()
     val customCats by Library.custom.collectAsState()
     var customOpen by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(LibraryTabState.openPlaylist.value) {
+        val n = LibraryTabState.openPlaylist.value ?: return@LaunchedEffect
+        Library.playlists.value.firstOrNull { it.name == n }?.let { filter = LFilter.LISTS; customOpen = null; openList = it }
+        LibraryTabState.openPlaylist.value = null
+    }
     var newCat by remember { mutableStateOf(false) }
     var editCat by remember { mutableStateOf<CustomCat?>(null) }
     var catFor by remember { mutableStateOf<List<LibFile>?>(null) }
