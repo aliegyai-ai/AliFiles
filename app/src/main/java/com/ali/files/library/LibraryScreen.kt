@@ -36,6 +36,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -156,6 +158,9 @@ fun LibraryTab(onRequest: (DownloadRequest) -> Unit) {
             androidx.compose.animation.AnimatedContent(page, label = "title", modifier = Modifier.weight(1f)) { p ->
                 Text(if (p == 0) "المكتبة" else "التحميلات", style = MaterialTheme.typography.headlineMedium)
             }
+            IconButton(onClick = { LibraryTabState.searchOpen.value = true }) {
+                Icon(Icons.Filled.Search, "اسأل مكتبتك", tint = MaterialTheme.colorScheme.primary)
+            }
             Row(
                 Modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -173,8 +178,24 @@ fun LibraryTab(onRequest: (DownloadRequest) -> Unit) {
                 }
             }
         }
-        if (page == 0) LibraryScreen() else DownloadsScreen(onRequest)
+        // pull the library down from its top → «اسأل مكتبتك»
+        val pull = remember {
+            object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+                var acc = 0f
+                override fun onPostScroll(consumed: androidx.compose.ui.geometry.Offset, available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                    if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput && available.y > 0f && consumed.y == 0f) {
+                        acc += available.y
+                        if (acc > 220f) { acc = 0f; LibraryTabState.searchOpen.value = true }
+                    } else acc = 0f
+                    return androidx.compose.ui.geometry.Offset.Zero
+                }
+            }
+        }
+        Box(Modifier.fillMaxSize().then(if (page == 0) Modifier.nestedScroll(pull) else Modifier)) {
+            if (page == 0) LibraryScreen() else DownloadsScreen(onRequest)
+        }
     }
+    if (LibraryTabState.searchOpen.value) AskLibrary { LibraryTabState.searchOpen.value = false }
 }
 
 @Composable
@@ -244,6 +265,11 @@ fun LibraryScreen() {
     val assigned by Library.cats.collectAsState()
     val customCats by Library.custom.collectAsState()
     var customOpen by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(LibraryTabState.openPlaylist.value) {
+        val n = LibraryTabState.openPlaylist.value ?: return@LaunchedEffect
+        Library.playlists.value.firstOrNull { it.name == n }?.let { filter = LFilter.LISTS; customOpen = null; openList = it }
+        LibraryTabState.openPlaylist.value = null
+    }
     var newCat by remember { mutableStateOf(false) }
     var editCat by remember { mutableStateOf<CustomCat?>(null) }
     var catFor by remember { mutableStateOf<List<LibFile>?>(null) }
@@ -812,7 +838,7 @@ private fun PlaylistDetail(current: Playlist, onOpen: (Playlist?) -> Unit, onFil
 // ============================================================ actions on one file
 
 @Composable
-private fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit = {}, onCategory: () -> Unit = {}, onDismiss: () -> Unit) {
+internal fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit = {}, onCategory: () -> Unit = {}, onDismiss: () -> Unit) {
     val pins by Library.pinned.collectAsState()
     var tone by remember { mutableStateOf(false) }
     var shrink by remember { mutableStateOf(false) }
@@ -948,6 +974,10 @@ object LibraryTabState {
     val filter = androidx.compose.runtime.mutableIntStateOf(0)
     val filterAsk = androidx.compose.runtime.mutableIntStateOf(0)
     fun open(f: Int) { filter.intValue = f; filterAsk.intValue++; page.intValue = 0; folder.value = "" }
+    /** «اسأل مكتبتك» is open */
+    val searchOpen = mutableStateOf(false)
+    /** a playlist to open (from the search) */
+    val openPlaylist = mutableStateOf<String?>(null)
     /** locked folders opened since the app was opened */
     val unlocked = HashSet<String>()
 }
