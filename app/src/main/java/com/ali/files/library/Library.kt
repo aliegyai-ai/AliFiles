@@ -79,6 +79,7 @@ object Library {
         _meta.value = runCatching { json.decodeFromString<Map<String, FolderMeta>>(metaFile.readText()) }.getOrDefault(emptyMap())
         _pinned.value = prefs.getStringSet("pinned", emptySet())?.toSet() ?: emptySet()
         runCatching { json.decodeFromString<CatStore>(catsFile.readText()) }.getOrNull()?.let { _cats.value = it.assigned; _custom.value = it.custom }
+        loadCatPrefs()
         sort.value = runCatching { LibSort.valueOf(prefs.getString("sort", "DATE")!!) }.getOrDefault(LibSort.DATE)
         // the trash keeps things 30 days
         val all = runCatching { json.decodeFromString<List<TrashEntry>>(trashIndex.readText()) }.getOrDefault(emptyList())
@@ -112,6 +113,18 @@ object Library {
     @Serializable
     private data class CatStore(val assigned: Map<String, String> = emptyMap(), val custom: List<CustomCat> = emptyList())
 
+    /** how the category bar looks: order, what's hidden, and your own names / colours / icons for the built-in ones */
+    @Serializable
+    data class CatPrefs(
+        val order: List<String> = emptyList(), val hidden: Set<String> = emptySet(),
+        val names: Map<String, String> = emptyMap(), val colors: Map<String, Int> = emptyMap(), val icons: Map<String, Int> = emptyMap(),
+    )
+    private val _catPrefs = MutableStateFlow(CatPrefs())
+    val catPrefs: StateFlow<CatPrefs> = _catPrefs
+    private val catPrefsFile get() = File(app.filesDir, "category_prefs.json")
+    fun setCatPrefs(p: CatPrefs) { _catPrefs.value = p; runCatching { catPrefsFile.writeText(json.encodeToString(p)) } }
+    private fun loadCatPrefs() { runCatching { json.decodeFromString<CatPrefs>(catPrefsFile.readText()) }.getOrNull()?.let { _catPrefs.value = it } }
+
     private fun saveCats() = runCatching { catsFile.writeText(json.encodeToString(CatStore(_cats.value, _custom.value))) }
 
     fun setCategory(files: List<LibFile>, cat: String?) {
@@ -128,6 +141,7 @@ object Library {
 
     fun deleteCustom(id: String) {
         _custom.value = _custom.value.filterNot { it.id == id }
+        _catPrefs.value.let { p -> setCatPrefs(p.copy(order = p.order - "c:$id", hidden = p.hidden - "c:$id")) }
         _cats.value = _cats.value.filterValues { it != "c:$id" }
         saveCats()
     }
