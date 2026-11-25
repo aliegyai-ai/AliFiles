@@ -36,6 +36,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.DragHandle
@@ -272,6 +273,24 @@ fun LibraryScreen() {
     }
     var newCat by remember { mutableStateOf(false) }
     var editCat by remember { mutableStateOf<CustomCat?>(null) }
+    var editBuiltin by remember { mutableStateOf<CatEntry?>(null) }
+    var manageCats by remember { mutableStateOf(false) }
+    val catPrefs by Library.catPrefs.collectAsState()
+    /** every category in the order you set: the built-in ones (with your names / colours) and the ones you made */
+    val catEntries: List<CatEntry> = run {
+        val all = LFilter.entries.map { f ->
+            CatEntry(
+                f.name, catPrefs.names[f.name] ?: f.label,
+                catPrefs.colors[f.name]?.let { Color(FOLDER_COLORS.getOrElse(it) { FOLDER_COLORS[0] }) } ?: Color(f.color),
+                catPrefs.icons[f.name]?.let { CUSTOM_ICONS.getOrNull(it) } ?: builtinIcon(f), true, f.name in catPrefs.hidden,
+            )
+        } + customCats.map { cc ->
+            CatEntry("c:${cc.id}", cc.name, Color(FOLDER_COLORS.getOrElse(cc.color) { FOLDER_COLORS[0] }), CUSTOM_ICONS.getOrElse(cc.icon) { CUSTOM_ICONS[0] }, false, "c:${cc.id}" in catPrefs.hidden, cc)
+        }
+        val rank = catPrefs.order.withIndex().associate { it.value to it.index }
+        // «كل الملفات» stays first; the rest follow your order, new ones at the end
+        all.sortedBy { if (it.key == "ALL") -1 else rank[it.key] ?: (1000 + all.indexOf(it)) }
+    }
     var catFor by remember { mutableStateOf<List<LibFile>?>(null) }
     /** the category of a file: the one you chose, or the automatic one */
     fun catOf(f: LibFile): String = assigned[f.path] ?: when {
@@ -397,27 +416,32 @@ fun LibraryScreen() {
         SeparationJobs()
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             val picking = selection.isNotEmpty()
-            LFilter.entries.forEach { f ->
-                val list = inFilter(f)
-                val canTake = f != LFilter.ALL && f != LFilter.FAV && f != LFilter.LISTS
-                if (picking && !canTake) return@forEach
-                if (!picking && list.isEmpty() && f != LFilter.ALL && f != filter && f != LFilter.LISTS) return@forEach
-                CategoryCard(
-                    f.label, if (f == LFilter.LISTS) "${playlists.size} قايمة" else "${list.size} • ${formatBytes(list.sumOf { it.size })}",
-                    Color(f.color), builtinIcon(f), selected = !picking && customOpen == null && filter == f, target = picking,
-                    onClick = { if (picking) assignTo(f.name, f.label) else { filter = f; customOpen = null; openList = null } },
-                )
+            catEntries.forEach { e ->
+                if (e.hidden && !(customOpen == e.key.removePrefix("c:") && !e.builtin) && !(e.builtin && filter.name == e.key && customOpen == null)) return@forEach
+                if (e.builtin) {
+                    val f = LFilter.valueOf(e.key)
+                    val list = inFilter(f)
+                    val canTake = f != LFilter.ALL && f != LFilter.FAV && f != LFilter.LISTS
+                    if (picking && !canTake) return@forEach
+                    if (!picking && list.isEmpty() && f != LFilter.ALL && f != filter && f != LFilter.LISTS) return@forEach
+                    CategoryCard(
+                        e.label, if (f == LFilter.LISTS) "${playlists.size} قايمة" else "${list.size} • ${formatBytes(list.sumOf { it.size })}",
+                        e.color, e.icon, selected = !picking && customOpen == null && filter == f, target = picking,
+                        onClick = { if (picking) assignTo(f.name, e.label) else { filter = f; customOpen = null; openList = null } },
+                        onLongClick = { manageCats = true },
+                    )
+                } else {
+                    val cc = e.custom!!
+                    val list = visible.filter { catOf(it) == "c:${cc.id}" }
+                    CategoryCard(
+                        cc.name, "${list.size} • ${formatBytes(list.sumOf { it.size })}", e.color, e.icon,
+                        selected = !picking && customOpen == cc.id, target = picking,
+                        onClick = { if (picking) assignTo("c:${cc.id}", cc.name) else { customOpen = cc.id; openList = null } },
+                        onLongClick = { manageCats = true },
+                    )
+                }
             }
-            customCats.forEach { cc ->
-                val list = visible.filter { catOf(it) == "c:${cc.id}" }
-                CategoryCard(
-                    cc.name, "${list.size} • ${formatBytes(list.sumOf { it.size })}",
-                    Color(FOLDER_COLORS.getOrElse(cc.color) { FOLDER_COLORS[0] }), CUSTOM_ICONS.getOrElse(cc.icon) { CUSTOM_ICONS[0] },
-                    selected = !picking && customOpen == cc.id, target = picking,
-                    onClick = { if (picking) assignTo("c:${cc.id}", cc.name) else { customOpen = cc.id; openList = null } },
-                    onLongClick = { editCat = cc },
-                )
-            }
+            IconButton(onClick = { manageCats = true }, modifier = Modifier.align(Alignment.CenterVertically)) { Icon(Icons.Filled.Tune, "رتّب التصنيفات") }
             NewCategoryCard { newCat = true }
         }
         if (selection.isNotEmpty()) Text(
@@ -484,6 +508,19 @@ fun LibraryScreen() {
     if (newCat) CustomCategoryDialog(null, onDismiss = { newCat = false }) { name, color, icon ->
         val c = Library.addCustom(name, color, icon); newCat = false
         catFor?.let { l -> Library.setCategory(l, "c:${c.id}"); catFor = null; selection = emptySet() }
+    }
+    if (manageCats) CategoryManager(
+        entries = catEntries, prefs = catPrefs, onDismiss = { manageCats = false },
+        onEdit = { e -> if (e.builtin) editBuiltin = e else editCat = e.custom },
+        onNew = { newCat = true },
+        onDelete = { e -> e.custom?.let { Library.deleteCustom(it.id); if (customOpen == it.id) customOpen = null } },
+    )
+    editBuiltin?.let { e ->
+        val p = catPrefs
+        CustomCategoryDialog(CustomCat(e.key, e.label, p.colors[e.key] ?: 2, p.icons[e.key] ?: 0), onDismiss = { editBuiltin = null }) { name, color, icon ->
+            Library.setCatPrefs(p.copy(names = p.names + (e.key to name.trim()), colors = p.colors + (e.key to color), icons = p.icons + (e.key to icon)))
+            editBuiltin = null
+        }
     }
     editCat?.let { cc ->
         CustomCategoryDialog(cc, onDismiss = { editCat = null }, onDelete = { Library.deleteCustom(cc.id); if (customOpen == cc.id) customOpen = null; editCat = null }) { name, color, icon ->
