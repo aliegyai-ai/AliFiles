@@ -60,6 +60,8 @@ class BrowserTab(val id: Long) {
     lateinit var frame: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     /** the finger is on a list that scrolls by itself inside the page (e.g. a YouTube playlist) */
     @Volatile var touchInInnerList = false
+    /** when the finger last touched the page (a site can't open the download sheet without you touching it) */
+    @Volatile var lastTouch = 0L
     val title = mutableStateOf("")
     val url = mutableStateOf("")
     val progress = mutableIntStateOf(100)
@@ -787,7 +789,10 @@ class BrowserController(private val activity: Activity) {
             }
         }
 
+        wv.setOnTouchListener { _, ev -> if (ev.actionMasked == android.view.MotionEvent.ACTION_UP) tab.lastTouch = System.currentTimeMillis(); false }
         wv.setDownloadListener { url, _, contentDisposition, mimetype, contentLength ->
+            // a site that starts a download by itself (a redirect, a script) is ignored; only after you touched the page
+            if (System.currentTimeMillis() - tab.lastTouch > 12_000) { toast("موقع حاول يحمّل ملف لوحده — اتجاهل"); return@setDownloadListener }
             requestDownload(url, tab, contentDisposition, mimetype, contentLength)
         }
 

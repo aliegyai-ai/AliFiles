@@ -81,6 +81,13 @@ object Downloader {
         }
     }
 
+    private var lastSoft = 0L
+    /** for progress ticks: writes the state at most every 3 seconds (saves battery); real changes use [save] */
+    private fun saveSoon() {
+        val now = System.currentTimeMillis()
+        if (now - lastSoft >= 3000) { lastSoft = now; save() }
+    }
+
     @Synchronized
     private fun save() {
         runCatching {
@@ -139,7 +146,9 @@ object Downloader {
     fun pause(id: Long) {
         update(id) { if (it.active) it.copy(status = DStatus.PAUSED, speed = 0) else it }
         if (get(id)?.ytdlp == true) VideoExtractor.cancel(id)
-        jobs.remove(id)?.cancel()
+        // stays in [jobs] until it really stopped (its «finally» takes it out and starts what's waiting),
+        // so «pause» then a quick «resume» can't run the same download twice
+        jobs[id]?.cancel()
         save()
         schedule()
     }
@@ -372,14 +381,36 @@ object Downloader {
         var attempts = 0
         while (true) {
             try {
-                client.newCall(request(item, url)).execute().use { r ->
+                val call = client.newCall(request(item, url))
+                call.execute().use { r ->
                     if (!r.isSuccessful) throw IOException("السيرفر رد بخطأ ${r.code}")
                     return r.body?.bytes() ?: throw IOException("رد فاضي")
                 }
             } catch (e: IOException) {
+                if (Thread.currentThread().isInterrupted) throw e
                 attempts++
                 if (attempts >= 5) throw e
                 Thread.sleep(1000L * attempts)
+            }
+        }
+    }
+
+    /** one segment: [call] first, then up to 4 more tries; a cancelled call stops without retrying */
+    private fun fetchCall(first: okhttp3.Call, item: DownloadItem, url: String): ByteArray {
+        var call = first
+        var attempts = 0
+        while (true) {
+            try {
+                call.execute().use { r ->
+                    if (!r.isSuccessful) throw IOException("السيرفر رد بخطأ ${r.code}")
+                    return r.body?.bytes() ?: throw IOException("رد فاضي")
+                }
+            } catch (e: IOException) {
+                if (call.isCanceled()) throw CancellationException("stopped")
+                attempts++
+                if (attempts >= 5) throw e
+                Thread.sleep(1000L * attempts)
+                call = client.newCall(request(item, url))
             }
         }
     }
@@ -475,13 +506,23 @@ object Downloader {
                 while (index < playlist.segments.size) {
                     ensureActive()
                     val batch = playlist.segments.subList(index, minOf(index + batchSize, playlist.segments.size))
-                    val data = batch.map { s -> async(Dispatchers.IO) { decrypt(item, s, fetchBytes(item, s.url), keys) } }.awaitAll()
+                    val data = batch.map { s ->
+                        async(Dispatchers.IO) {
+                            val call = client.newCall(request(item, s.url))
+                            // pause / remove cancels this coroutine → the request is closed at once
+                            val h = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]!!.invokeOnCompletion { if (it != null) call.cancel() }
+                            try {
+                                val bytes = fetchCall(call, item, s.url)
+                                decrypt(item, s, bytes, keys)
+                            } finally { h.dispose() }
+                        }
+                    }.awaitAll()
                     for (d in data) { raf.write(d); written += d.size; sessionBytes += d.size }
                     index += batch.size
                     val speed = (sessionBytes * 1e9 / (System.nanoTime() - startT).coerceAtLeast(1)).toLong()
                     val i = index; val w = written
                     update(id) { it.copy(hlsIndex = i, downloaded = w, speed = speed) }
-                    save()
+                    saveSoon()
                 }
             }
         }
@@ -493,7 +534,6 @@ object Downloader {
     private suspend fun runVideo(id: Long): File = withContext(Dispatchers.IO) {
         val item = get(id) ?: throw IOException("التحميل اتشال")
         val dir = videoDir(id).apply { mkdirs() }
-        var lastSave = 0L
         val out = VideoExtractor.download(item, dir) { percent, total, speed, note ->
             update(id) {
                 val t = if (total > 0) total else it.total
@@ -504,8 +544,7 @@ object Downloader {
                     note = note ?: (if (it.audioOnly) "صوت بس" else "فيديو"),
                 )
             }
-            val now = System.currentTimeMillis()
-            if (now - lastSave > 2000) { lastSave = now; save() }
+            saveSoon()
         }
         val name = sanitizeFileName(out.name)
         update(id) { it.copy(fileName = name, mime = mimeOf(name), total = out.length(), downloaded = out.length(), note = null) }
@@ -523,11 +562,15 @@ object Downloader {
             else -> item.mime ?: mimeOf(item.fileName)
         }
         run {
-            // stays inside the app (the library); the user saves it to the phone only if they want
-            val dest = com.ali.files.library.Library.add(part, item.fileName, item.headers["Referer"]?.takeIf { it.startsWith("http") } ?: item.url, item.libFolder)
+            // a stream put together from pieces is a .ts file that many players and the gallery can't open → mp4
+            var finalPart = part
+            var finalName = item.fileName
+            var finalMime = mime
+            if (item.hls) toMp4(part)?.let { finalPart = it; finalName = item.fileName.substringBeforeLast('.') + ".mp4"; finalMime = "video/mp4" }
+            val dest = com.ali.files.library.Library.add(finalPart, finalName, item.headers["Referer"]?.takeIf { it.startsWith("http") } ?: item.url, item.libFolder)
             // from a playlist: it joins the same playlist in the app, in the playlist's order
             item.group?.let { com.ali.files.library.Library.addToGroup(it, dest.absolutePath) }
-            update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, libraryPath = dest.absolutePath, fileName = dest.name, mime = mime) }
+            update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, libraryPath = dest.absolutePath, fileName = dest.name, mime = finalMime) }
             save()
             Notifications.notifyDone(app, id, "اتحمّل في المكتبة", "${dest.name} • ${formatBytes(get(id)?.downloaded ?: 0)}")
             // «also save to the gallery»
@@ -536,4 +579,18 @@ object Downloader {
             }
         }
     }
+
+    /** a .ts made of HLS pieces → mp4 (the picture isn't re-encoded). null = couldn't, the .ts stays. */
+    private fun toMp4(ts: File): File? = runCatching {
+        val out = File(ts.parentFile, ts.nameWithoutExtension + "_mp4.tmp.mp4")
+        val bin = File(app.applicationInfo.nativeLibraryDir, "libffmpeg.so")
+        val pkgs = File(app.noBackupFilesDir, "youtubedl-android/packages")
+        runCatching { com.yausername.ffmpeg.FFmpeg.getInstance().init(app) }
+        val pb = ProcessBuilder(bin.path, "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", ts.path, "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", out.path)
+        pb.environment()["LD_LIBRARY_PATH"] = "${pkgs.path}/python/usr/lib:${pkgs.path}/ffmpeg/usr/lib"
+        pb.redirectErrorStream(true)
+        val p = pb.start()
+        p.inputStream.readBytes()
+        if (p.waitFor() == 0 && out.length() > 0) { ts.delete(); out } else { out.delete(); null }
+    }.getOrNull()
 }
