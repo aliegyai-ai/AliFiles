@@ -97,7 +97,17 @@ object PlayerHub {
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(playing: Boolean) {
             isPlaying.value = playing
-            if (!playing) savePosition()
+            if (!playing) savePosition() else startSaving()
+        }
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_READY) current?.let { t -> if (player.duration > 0) durations[t.id] = player.duration }
+        }
+        // the song you were on when you hit «next» / picked another: remember where you left it
+        override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
+            if (old.mediaItemIndex == new.mediaItemIndex) return
+            val id = old.mediaItem?.mediaId ?: return
+            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) prefs.edit().remove(id).apply()
+            else store(id, old.positionMs, durations[id] ?: 0L)
         }
         override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
@@ -285,14 +295,33 @@ object PlayerHub {
         return if (p > 0 && d > 0) (p.toFloat() / d).coerceIn(0f, 1f) else 0f
     }
 
+    /** durations of what's been loaded (to know how far into a file we were) */
+    private val durations = HashMap<String, Long>()
+    private var saveJob: Job? = null
+
+    /** while something plays, the spot is saved every few seconds — so even if the app is killed, it continues from there */
+    private fun startSaving() {
+        if (saveJob?.isActive == true) return
+        saveJob = scope.launch {
+            while (true) {
+                delay(4000)
+                if (player.isPlaying) savePosition()
+            }
+        }
+    }
+
+    private fun store(id: String, p: Long, d: Long) {
+        if (d < 30_000) return  // very short clips always start from the beginning
+        val e = prefs.edit()
+        if (p > 3_000 && p < d - 10_000) e.putLong(id, p).putLong("d:$id", d) else e.remove(id)
+        e.apply()
+    }
+
     fun savePosition() {
         val t = current ?: return
         val d = player.duration
-        val p = player.currentPosition
-        if (d <= 0 || d < 60_000) return  // short clips always start from the beginning
-        val e = prefs.edit()
-        if (p > 5_000 && p < d - 15_000) e.putLong(t.id, p).putLong("d:${t.id}", d) else e.remove(t.id)
-        e.apply()
+        if (d <= 0) return
+        store(t.id, player.currentPosition, d)
     }
 
     private fun restorePosition() {
