@@ -72,6 +72,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
@@ -261,6 +262,18 @@ private fun BrowserContent(c: BrowserController, ui: UiState) {
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
+                    )
+                }
+                // the site covered itself with a «log in» window → one tap to try without an account
+                if (tab != null && tab.loginWall.value && LoginWall.isWallSite(tab.url.value)) {
+                    ExtendedFloatingActionButton(
+                        onClick = { c.tryWithoutLogin(tab) },
+                        icon = { Icon(Icons.Filled.LockOpen, null) },
+                        text = { Text("جرّب من غير تسجيل", fontWeight = FontWeight.Bold) },
+                        shape = RoundedCornerShape(50),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp),
                     )
                 }
                 // thin loading line at the bottom edge of the page

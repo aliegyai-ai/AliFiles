@@ -62,6 +62,8 @@ class BrowserTab(val id: Long) {
     @Volatile var touchInInnerList = false
     /** when the finger last touched the page (a site can't open the download sheet without you touching it) */
     @Volatile var lastTouch = 0L
+    /** the page covered itself with a «log in» window (we hid it) */
+    val loginWall = mutableStateOf(false)
     val title = mutableStateOf("")
     val url = mutableStateOf("")
     val progress = mutableIntStateOf(100)
@@ -271,6 +273,25 @@ class BrowserController(private val activity: Activity) {
     }
 
     fun closeAll() { tabs.toList().forEach { closeTab(it.id) } }
+
+    /**
+     * «جرّب من غير تسجيل»: 1) clean the page again, 2) Instagram → the post's embed page, Facebook → the light
+     * site, 3) otherwise hand the page to the downloader (works for public videos with no account).
+     */
+    fun tryWithoutLogin(tab: BrowserTab) {
+        val now = tab.url.value
+        tab.webView.evaluateJavascript("window.__aliWall && window.__aliWall()", null)
+        main.postDelayed({
+            if (!tabs.contains(tab)) return@postDelayed
+            val alt = LoginWall.embedUrl(now) ?: LoginWall.lightUrl(now)
+            when {
+                !tab.loginWall.value -> toast("اتشالت نافذة التسجيل")
+                alt != null && alt != now -> { toast("بجرّب نسخة بتشتغل من غير حساب…"); tab.loginWall.value = false; tab.webView.loadUrl(alt) }
+                com.ali.files.download.VideoExtractor.isSingleVideoPage(now) -> { toast("هجرّب أجيب الفيديو مباشرة…"); requestVideo(tab, now) }
+                else -> toast("الموقع مش بيبعت المحتوى ده لغير المسجّلين")
+            }
+        }, 700)
+    }
 
     fun load(input: String) {
         val tab = current ?: newTab(null)
@@ -562,11 +583,13 @@ class BrowserController(private val activity: Activity) {
         // videos keep playing in the background, with controls in the notification
         wv.addJavascriptInterface(BgMedia.Bridge(activity, tab), BgMedia.BRIDGE)
         wv.addJavascriptInterface(InnerScroll.Bridge(tab), InnerScroll.BRIDGE)
+        wv.addJavascriptInterface(LoginWall.Bridge(tab), LoginWall.BRIDGE)
         if (docStartScript) {
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, AdFilter.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, VideoButtons.SCRIPT, setOf("*")) }
             if (AppSettings.bgPlay.value) runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, BgMedia.SCRIPT, setOf("*")) }
             runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, InnerScroll.SCRIPT, setOf("*")) }
+            runCatching { androidx.webkit.WebViewCompat.addDocumentStartJavaScript(wv, LoginWall.SCRIPT, setOf("*")) }
         }
 
         // the toolbar stays put: hiding it resized the page mid-scroll, and lists inside pages
@@ -609,6 +632,7 @@ class BrowserController(private val activity: Activity) {
                 tab.url.value = url ?: ""
                 tab.pageHost = runCatching { Uri.parse(url).host }.getOrNull()
                 tab.media.clear()
+                tab.loginWall.value = false
                 tab.playing.value = false
                 tab.lastVideoSrc = ""
                 tab.lastVideoPage = ""
