@@ -288,6 +288,34 @@ object VideoExtractor {
         headers["Referer"]?.takeIf { it.isNotBlank() }?.let { req.addOption("--add-header", "Referer:$it") }
     }
 
+    /** The video's own captions (written by its owner, or YouTube's automatic ones) as json3 files in [dir]: language → file. */
+    suspend fun fetchSubtitles(url: String, headers: Map<String, String>, dir: File): Map<String, File> = withContext(Dispatchers.IO) {
+        ready.await()
+        dir.mkdirs()
+        fun request() = YoutubeDLRequest(url).also { req ->
+            req.addOption("--no-playlist")
+            req.addOption("--skip-download")
+            req.addOption("--write-subs")
+            req.addOption("--write-auto-subs")
+            req.addOption("--sub-langs", "ar-orig,ar,en-orig,en")
+            req.addOption("--sub-format", "json3")
+            req.addOption("--no-mtime")
+            req.addOption("-o", File(dir, "t.%(ext)s").absolutePath)
+            cacheOptions(req)
+            headerOptions(req, headers)
+            jsRuntimeOptions(req)
+        }
+        fun found() = dir.listFiles().orEmpty().filter { it.name.endsWith(".json3") }
+            .associate { it.name.removePrefix("t.").removeSuffix(".json3") to it }
+        // a language that fails (too many requests…) shouldn't lose the ones that worked
+        runCatching { YoutubeDL.getInstance().execute(request()) }
+        if (found().isEmpty()) {
+            runCatching { update() }
+            runCatching { YoutubeDL.getInstance().execute(request()) }
+        }
+        found()
+    }
+
     private suspend fun fetchInfo(r: VideoRequest): VideoMeta = withContext(Dispatchers.IO) {
         ready.await()
         fun request(withJs: Boolean) = YoutubeDLRequest(r.url).also { req ->

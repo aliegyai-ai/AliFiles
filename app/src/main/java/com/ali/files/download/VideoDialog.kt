@@ -54,6 +54,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.clickable
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -118,6 +120,9 @@ fun VideoDialog(
     // a stray tap or swipe doesn't close it — only «✕» / «إلغاء» / back. It's part of the screen (not a
     // separate window), so closing it can never leave the browser under it frozen.
     val startAt = remember { mutableStateOf(0L) }
+    var withText by remember { mutableStateOf(false) }
+    var textBusy by remember { mutableStateOf(false) }
+    val textScope = androidx.compose.runtime.rememberCoroutineScope()
     val close = onDismiss
     com.ali.files.ui.OverlaySheet(onBack = close) {
         Column(
@@ -241,6 +246,13 @@ fun VideoDialog(
                     }
 
                     ScheduleChoice(startAt)
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { withText = !withText },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.Checkbox(checked = withText, onCheckedChange = { withText = it })
+                        Text("حمّل نص الفيديو كمان (Markdown + Text)", fontSize = 13.sp)
+                    }
                     Spacer(Modifier.height(4.dp))
                     Button(
                         enabled = choice != null,
@@ -248,6 +260,7 @@ fun VideoDialog(
                             val c = choice ?: return@Button
                             if (c == AUDIO) { AppSettings.setAudioQuality(audioQ.name); AppSettings.setAudioFormat(audioFmt) }
                             Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, if (c == AUDIO) audioQ else null, audioFmt, startAt = startAt.value, thumb = s.meta.thumbnail)
+                            if (withText) VideoText.saveInBackground(ctx, s.meta, req.headers)
                             onStarted()
                         },
                         shape = RoundedCornerShape(14.dp),
@@ -283,6 +296,20 @@ fun VideoDialog(
                         Spacer(Modifier.width(8.dp))
                         Text("شغّل من غير تحميل", fontWeight = FontWeight.Bold)
                     }
+                    OutlinedButton(
+                        enabled = !textBusy,
+                        onClick = {
+                            textBusy = true
+                            textScope.launch {
+                                val msg = runCatching { VideoText.save(ctx, s.meta, req.headers) }
+                                    .fold({ "اتحفظ نص الفيديو في المكتبة ← نصوص (ملفين)" }, { "نص الفيديو: " + (it.message ?: "تعذر") })
+                                textBusy = false
+                                android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                    ) { Text(if (textBusy) "بيجيب النص…" else "حمّل نص الفيديو بس (Markdown + Text)", fontWeight = FontWeight.Bold) }
                     TextButton(onClick = close, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("إلغاء") }
                 }
             }
