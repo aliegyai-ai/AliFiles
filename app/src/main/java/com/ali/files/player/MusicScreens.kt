@@ -95,6 +95,7 @@ import com.ali.files.download.Downloader
 import com.ali.files.library.Library
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -225,7 +226,7 @@ fun NowPlayingScreen() {
             .background(Color(0xFF0E0D0B))
             .pointerInput(Unit) { detectTapGestures { } }
             .pointerInput(Unit) {
-                androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                detectVerticalDragGestures(
                     onDragEnd = {
                         if (pull.value > 260f) PlayerHub.musicOpen.value = false
                         else pullScope.launch { pull.animateTo(0f) }
