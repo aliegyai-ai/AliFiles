@@ -197,7 +197,12 @@ fun SettingsScreen(browser: BrowserController, ui: UiState) {
                 Text(label)
             }
         }
+        com.ali.files.library.LibraryToolsSection()
         SwitchRow("احفظ نسخة في الاستديو", "كل فيديو أو صورة أو أغنية تتحمّل تتحفظ كمان في الاستديو/الموسيقى", AppSettings.autoGallery.value) { AppSettings.setAutoGallery(it) }
+
+        HorizontalDivider()
+        Section("التحميل المجدول")
+        SwitchRow("واي فاي بس", "التحميلات المجدولة (حمّل بعدين) تبدأ بس لما يبقى فيه واي فاي", AppSettings.scheduleWifiOnly.value) { AppSettings.setScheduleWifiOnly(it) }
 
         HorizontalDivider()
         Section("مساحة التطبيق")

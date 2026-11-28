@@ -54,6 +54,8 @@ data class DownloadItem(
     val libFolder: String? = null,
     val group: String? = null,
     val note: String? = null,
+    /** «حمّل بعدين»: when it should start (ms), 0 = not scheduled */
+    val scheduledAt: Long = 0,
 ) {
     val fraction: Float
         get() = when {

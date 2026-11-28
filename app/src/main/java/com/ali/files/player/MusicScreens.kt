@@ -307,6 +307,15 @@ fun NowPlayingScreen() {
                         }
                     }
                 }
+                ToolButton(
+                    Icons.Filled.Repeat,
+                    when {
+                        PlayerHub.loopA.longValue < 0 -> "تكرار مقطع"
+                        PlayerHub.loopB.longValue < 0 -> "حدد النهاية"
+                        else -> "إلغاء التكرار"
+                    },
+                    PlayerHub.loopA.longValue >= 0,
+                ) { PlayerHub.loopTap() }
                 ToolButton(Icons.Filled.Equalizer, "المعادل", PlayerHub.eqEnabled.value) { showEq = true }
                 ToolButton(Icons.AutoMirrored.Filled.QueueMusic, "القايمة", false) { showQueue = true }
             }

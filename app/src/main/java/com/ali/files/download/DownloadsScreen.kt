@@ -234,7 +234,7 @@ private fun statusLine(d: DownloadItem): String {
             }
             if (!d.hls && d.segments.size > 1) append(" • ${d.segments.size} خيوط")
         }
-        DStatus.PAUSED -> "متوقف • " + (if (d.hls) "جزء ${d.hlsIndex} من ${d.hlsTotal}" else size)
+        DStatus.PAUSED -> if (d.scheduledAt > 0) "⏰ مجدول الساعة ${clock(d.scheduledAt)} • " + size else "متوقف • " + (if (d.hls) "جزء ${d.hlsIndex} من ${d.hlsTotal}" else size)
         DStatus.FAILED -> "فشل: ${d.error ?: "خطأ غير معروف"}"
         DStatus.COMPLETED -> formatBytes(d.downloaded) + when {
             d.libraryPath != null -> " • في المكتبة"
@@ -277,6 +277,7 @@ private fun AddLinkDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
 fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: () -> Unit) {
     var name by remember(req) { mutableStateOf(req.fileName) }
     var threads by remember(req) { mutableFloatStateOf(AppSettings.threads.intValue.toFloat()) }
+    val startAt = remember(req) { mutableStateOf(0L) }
     val hls = Downloader.isHlsUrl(req.url, req.mime)
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = onDismiss,
@@ -296,13 +297,14 @@ fun DownloadDialog(req: DownloadRequest, onDismiss: () -> Unit, onStarted: () ->
                 )
                 Text(if (hls) "عدد الأجزاء مع بعض: ${threads.toInt()}" else "عدد الخيوط (أسرع مع السيرفرات اللي بتدعم): ${threads.toInt()}", fontSize = 13.sp)
                 Slider(value = threads, onValueChange = { threads = it }, valueRange = 1f..16f, steps = 14)
+                ScheduleChoice(startAt)
             }
         },
         confirmButton = {
             TextButton(enabled = name.isNotBlank(), onClick = {
-                Downloader.enqueue(req.copy(fileName = name.trim()), threads.toInt())
+                Downloader.enqueue(req.copy(fileName = name.trim()), threads.toInt(), startAt.value)
                 onStarted()
-            }) { Text("ابدأ التحميل") }
+            }) { Text(if (startAt.value > 0) "جدولة الساعة ${clock(startAt.value)}" else "ابدأ التحميل") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
