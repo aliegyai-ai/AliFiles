@@ -148,7 +148,8 @@ fun AskLibrary(onClose: () -> Unit) {
     val visible = remember(files) {
         files.filter { f -> !Library.isLocked(f.folder) || LibraryTabState.unlocked.any { u -> f.folder == u || f.folder.startsWith("$u/") } }
     }
-    val normNames = remember(visible) { visible.associate { it.path to AskParser.norm(it.title + " " + it.folder) } }
+    val trVersion by com.ali.files.transcribe.Transcripts.version.collectAsState()
+    val normNames = remember(visible, trVersion) { visible.associate { it.path to (AskParser.norm(it.title + " " + it.folder) + " " + com.ali.files.transcribe.Transcripts.words(it.path)) } }
 
     // a length was asked: measure the videos / songs once (kept in memory)
     LaunchedEffect(needLength, visible) {
@@ -367,6 +368,7 @@ fun AskLibrary(onClose: () -> Unit) {
                                     ResultRow(
                                         f, words, gold, PlayerHub.progressOf(f.path),
                                         length = durations[f.path],
+                                        spoken = remember(f.path, words, trVersion) { if (words.isEmpty()) null else com.ali.files.transcribe.Transcripts.where(f.path, words).firstOrNull() },
                                         onTap = { open(f, l) }, onHold = { preview = f }, onRelease = { preview = null }, onMenu = { menuFor = f },
                                     )
                                 }
@@ -418,6 +420,7 @@ private fun highlight(name: String, words: List<String>, gold: Color): Annotated
 @Composable
 private fun ResultRow(
     f: LibFile, words: List<String>, gold: Color, progress: Float, length: Long? = null,
+    spoken: com.ali.files.transcribe.Transcripts.Hit? = null,
     onTap: () -> Unit, onHold: () -> Unit, onRelease: () -> Unit, onMenu: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -446,6 +449,7 @@ private fun ResultRow(
             val where = if (f.folder.isEmpty()) "المكتبة" else f.folder.substringAfterLast('/')
             val len = length?.takeIf { it > 0 }?.let { " • " + com.ali.files.player.formatTime(it) } ?: ""
             Text("📁 $where • ${formatBytes(f.size)}$len", fontSize = 11.sp, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (spoken != null) Text("🗣 ${com.ali.files.player.formatTime(spoken.ms)} — ${spoken.text}", fontSize = 12.sp, color = gold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         IconButton(onClick = onMenu) { Icon(Icons.Filled.MoreVert, "خيارات") }
     }

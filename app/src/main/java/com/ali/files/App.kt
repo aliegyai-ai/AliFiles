@@ -21,6 +21,7 @@ class App : Application() {
         Notifications.createChannels(this)
         Vault.init(this)
         Downloader.init(this)
+        com.ali.files.transcribe.Transcripts.init(this)
         VideoExtractor.init(this)
         com.ali.files.library.Library.init(this)
         com.ali.files.player.PlayerHub.init(this)

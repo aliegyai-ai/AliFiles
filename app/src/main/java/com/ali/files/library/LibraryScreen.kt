@@ -54,6 +54,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Compress
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
@@ -414,6 +415,7 @@ fun LibraryScreen() {
             }
         }
         SeparationJobs()
+        com.ali.files.transcribe.TranscribeJobs()
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             val picking = selection.isNotEmpty()
             catEntries.forEach { e ->
@@ -879,6 +881,7 @@ internal fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit 
     val pins by Library.pinned.collectAsState()
     var tone by remember { mutableStateOf(false) }
     var shrink by remember { mutableStateOf(false) }
+    var speech by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val favs by Library.favorites.collectAsState()
@@ -932,6 +935,7 @@ internal fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit 
                     com.ali.files.separate.Separator.start(ctx, f, com.ali.files.separate.SepMode.MUSIC)
                     toast("بدأ فصل الموسيقى — هتلاقي التقدّم فوق في المكتبة"); onDismiss()
                 }
+                Action(Icons.Filled.Subtitles, if (com.ali.files.transcribe.Transcripts.has(f.path)) "الكلام المكتوب" else "اكتب الكلام (نص عربي)") { speech = true }
                 Action(Icons.AutoMirrored.Filled.PlaylistAdd, "ضيف لقايمة تشغيل") { pickList = true }
             }
             Action(Icons.Filled.DriveFileRenameOutline, "إعادة تسمية") { renaming = true }
@@ -947,6 +951,7 @@ internal fun FileActions(f: LibFile, onMove: () -> Unit = {}, onZip: () -> Unit 
     if (pickList) PlaylistPicker(f) { pickList = false; onDismiss() }
     if (tone) ToneDialog(f) { tone = false; onDismiss() }
     if (shrink) ShrinkDialog(f) { shrink = false; onDismiss() }
+    if (speech) com.ali.files.transcribe.SpeechDialog(f) { speech = false; onDismiss() }
     if (confirmDelete) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), 
         onDismissRequest = { confirmDelete = false },
         title = { Text("تمسح «${f.title}»؟") },
