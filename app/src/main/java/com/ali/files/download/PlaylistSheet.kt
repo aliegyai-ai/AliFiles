@@ -154,7 +154,7 @@ fun PlaylistSheet(url: String, headers: Map<String, String>, onDismiss: () -> Un
                                 Downloader.enqueueVideo(
                                     e.url, "%02d".format(i + 1) + " - " + e.title, height, headers,
                                     if (height == null) audioQ else null, fmt,
-                                    libFolder = folder, group = p.title.take(60),
+                                    libFolder = folder, group = p.title.take(60), thumb = e.thumbnail,
                                 )
                             }
                             onStarted()

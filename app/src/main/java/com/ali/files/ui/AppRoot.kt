@@ -290,9 +290,18 @@ fun AppRoot(browser: BrowserController, ui: UiState) {
         com.ali.files.player.PlayerHub.inPip.value -> Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
             com.ali.files.player.VideoSurface(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT, Modifier.fillMaxSize())
         }
-        com.ali.files.player.PlayerHub.videoOpen.value -> com.ali.files.player.VideoPlayerScreen(onPip = { (ctx as? com.ali.files.MainActivity)?.enterPip() })
-        com.ali.files.player.PlayerHub.musicOpen.value -> com.ali.files.player.NowPlayingScreen()
     }
+    // the players slide up from the bottom and go back down
+    androidx.compose.animation.AnimatedVisibility(
+        visible = com.ali.files.player.PlayerHub.videoOpen.value && !com.ali.files.player.PlayerHub.inPip.value,
+        enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(380)) { it } + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(300)) { it } + androidx.compose.animation.fadeOut(),
+    ) { com.ali.files.player.VideoPlayerScreen(onPip = { (ctx as? com.ali.files.MainActivity)?.enterPip() }) }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = com.ali.files.player.PlayerHub.musicOpen.value && !com.ali.files.player.PlayerHub.videoOpen.value && !com.ali.files.player.PlayerHub.inPip.value,
+        enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(380)) { it } + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(300)) { it } + androidx.compose.animation.fadeOut(),
+    ) { com.ali.files.player.NowPlayingScreen() }
 }
 
 

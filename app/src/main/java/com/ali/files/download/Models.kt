@@ -56,6 +56,8 @@ data class DownloadItem(
     val note: String? = null,
     /** «حمّل بعدين»: when it should start (ms), 0 = not scheduled */
     val scheduledAt: Long = 0,
+    /** the picture of the video (from the page), saved as the file's cover when it's done */
+    val thumbUrl: String? = null,
 ) {
     val fraction: Float
         get() = when {

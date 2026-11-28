@@ -330,13 +330,13 @@ fun VideoPlayerScreen(onPip: () -> Unit) {
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(formatTime((dragging?.toLong()) ?: position), color = Color.White, fontSize = 12.sp)
-                            Slider(
+                            SleekSeekBar(
                                 value = (dragging ?: position.toFloat()).coerceIn(0f, duration.toFloat().coerceAtLeast(1f)),
-                                onValueChange = { dragging = it; lastTouch = System.currentTimeMillis() },
-                                onValueChangeFinished = { dragging?.let { p.seekTo(it.toLong()) }; dragging = null },
-                                valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                                colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Color.White.copy(alpha = 0.3f)),
-                                modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                                max = duration.toFloat().coerceAtLeast(1f),
+                                onChange = { dragging = it; lastTouch = System.currentTimeMillis() },
+                                onDone = { dragging?.let { p.seekTo(it.toLong()) }; dragging = null },
+                                inactive = Color.White.copy(alpha = 0.3f),
+                                modifier = Modifier.weight(1f).padding(horizontal = 22.dp),
                             )
                             Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
                         }
