@@ -43,7 +43,7 @@ class Whisper(dir: File) : AutoCloseable {
 
     init {
         val opts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(4) }
-        enc = env.createSession(File(dir, "encoder.onnx").path, opts)
+        enc = env.createSession(File(dir, "encoder_v2.onnx").path, opts)
         dec = env.createSession(File(dir, "decoder.onnx").path, OrtSession.SessionOptions().apply { setIntraOpNumThreads(4) })
         numMel = ((enc.inputInfo["input_features"]!!.info as TensorInfo).shape[1]).toInt().let { if (it > 0) it else 80 }
         pastNames = dec.inputNames.filter { it.startsWith("past_key_values") }
