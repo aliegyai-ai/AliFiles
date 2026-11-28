@@ -147,8 +147,6 @@ object PlayerHub {
     private fun subsFor(t: Track): List<MediaItem.SubtitleConfiguration> {
         val l = ArrayList<MediaItem.SubtitleConfiguration>()
         extraSubs[t.id]?.let { l += subConfig(it, it.lastPathSegment ?: "ترجمة.srt") }
-        // what the app wrote from the speech («اكتب الكلام»)
-        t.libraryPath?.let { p -> com.ali.files.transcribe.Transcripts.srtFile(p) }?.let { l += subConfig(Uri.fromFile(it), "الكلام المكتوب.srt") }
         if (t.isVideo && t.uri.scheme == "file") runCatching {
             val f = java.io.File(t.uri.path!!)
             f.parentFile?.listFiles()?.filter { s ->

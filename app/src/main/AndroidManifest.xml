@@ -84,11 +84,6 @@
         </service>
 
         <service
-            android:name=".transcribe.TranscribeService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <service
             android:name=".separate.SeparateService"
             android:exported="false"
             android:process=":separate"
