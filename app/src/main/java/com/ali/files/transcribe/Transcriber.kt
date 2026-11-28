@@ -36,17 +36,17 @@ import java.util.concurrent.TimeUnit
 
 enum class WhisperSize(val key: String, val label: String, val note: String, val files: List<Pair<String, String>>, val mb: Int) {
     BASE(
-        "base", "سريع", "حوالي 136 ميجا — أسرع، ودقته متوسطة في العربي",
+        "base", "سريع", "حوالي 77 ميجا — أسرع، ودقته متوسطة في العربي",
         listOf(
-            "encoder_v2.onnx" to "https://huggingface.co/onnx-community/whisper-base/resolve/main/onnx/encoder_model.onnx",
+            "encoder.onnx" to "https://huggingface.co/onnx-community/whisper-base/resolve/main/onnx/encoder_model_int8.onnx",
             "decoder.onnx" to "https://huggingface.co/onnx-community/whisper-base/resolve/main/onnx/decoder_model_merged_int8.onnx",
             "vocab.json" to "https://huggingface.co/onnx-community/whisper-base/resolve/main/vocab.json",
-        ), 136,
+        ), 77,
     ),
     SMALL(
-        "small", "أدق", "حوالي 225 ميجا — أدق بكتير في العربي، بس أبطأ",
+        "small", "أدق", "حوالي 250 ميجا — أدق بكتير في العربي، بس أبطأ",
         listOf(
-            "encoder_v2.onnx" to "https://huggingface.co/onnx-community/whisper-small/resolve/main/onnx/encoder_model_q4.onnx",
+            "encoder.onnx" to "https://huggingface.co/onnx-community/whisper-small/resolve/main/onnx/encoder_model_int8.onnx",
             "decoder.onnx" to "https://huggingface.co/onnx-community/whisper-small/resolve/main/onnx/decoder_model_merged_int8.onnx",
             "vocab.json" to "https://huggingface.co/onnx-community/whisper-small/resolve/main/vocab.json",
         ), 250,
@@ -222,7 +222,6 @@ class TranscribeService : Service() {
     private fun ensureModel(job: TrJob, size: WhisperSize) {
         if (Transcriber.modelReady(this, size)) return
         val dir = Transcriber.modelDir(this, size).apply { mkdirs() }
-        File(dir, "encoder.onnx").delete()   // the first version didn't run on phones
         val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
         size.files.forEachIndexed { idx, (name, url) ->
             val f = File(dir, name)
