@@ -42,6 +42,8 @@ object AppSettings {
     val autoFolder = mutableStateOf("none")
     /** also copy finished downloads to the phone's gallery */
     val autoGallery = mutableStateOf(false)
+    /** which Whisper model writes the speech: "" = not chosen yet, "base" or "small" */
+    val whisperModel = mutableStateOf("")
 
     @Volatile var adBlockFast = true
         private set
@@ -69,6 +71,7 @@ object AppSettings {
         keepSites.value = sp.getStringSet("keepSites", emptySet())?.toSet() ?: emptySet()
         autoFolder.value = sp.getString("autoFolder", "none") ?: "none"
         autoGallery.value = sp.getBoolean("autoGallery", false)
+        whisperModel.value = sp.getString("whisperModel", "") ?: ""
     }
 
     fun setThreads(v: Int) { threads.intValue = v; sp.edit().putInt("threads", v).apply() }
@@ -77,6 +80,7 @@ object AppSettings {
     fun setClipboardDetect(v: Boolean) { clipboardDetect.value = v; sp.edit().putBoolean("clipboardDetect", v).apply() }
     fun setInPageButtons(v: Boolean) { inPageButtons.value = v; inPageButtonsFast = v; sp.edit().putBoolean("inPageButtons", v).apply() }
     fun setAutoFolder(v: String) { autoFolder.value = v; sp.edit().putString("autoFolder", v).apply() }
+    fun setWhisperModel(v: String) { whisperModel.value = v; sp.edit().putString("whisperModel", v).apply() }
     fun setAutoGallery(v: Boolean) { autoGallery.value = v; sp.edit().putBoolean("autoGallery", v).apply() }
     fun setUpdateMode(v: String) { updateMode.value = v; sp.edit().putString("updateMode", v).apply() }
     fun setScheduleWifiOnly(v: Boolean) { scheduleWifiOnly.value = v; sp.edit().putBoolean("scheduleWifiOnly", v).apply() }
