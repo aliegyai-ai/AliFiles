@@ -233,6 +233,37 @@ object PlayerHub {
         if (queue.value.isEmpty()) stop()
     }
 
+    /** memorization loop: [loopA]..[loopB] (ms) repeats; -1 = not set */
+    val loopA = mutableLongStateOf(-1L)
+    val loopB = mutableLongStateOf(-1L)
+    private var loopJob: Job? = null
+
+    /** taps: first sets the start, second sets the end and starts looping, third clears it */
+    fun loopTap() {
+        when {
+            loopA.longValue < 0 -> loopA.longValue = player.currentPosition
+            loopB.longValue < 0 -> {
+                val b = player.currentPosition
+                if (b - loopA.longValue < 800) { loopA.longValue = -1; return }
+                loopB.longValue = b
+                startLoop()
+            }
+            else -> clearLoop()
+        }
+    }
+
+    fun clearLoop() { loopJob?.cancel(); loopA.longValue = -1; loopB.longValue = -1 }
+
+    private fun startLoop() {
+        loopJob?.cancel()
+        loopJob = scope.launch {
+            while (loopB.longValue > 0) {
+                if (player.isPlaying && player.currentPosition >= loopB.longValue) player.seekTo(loopA.longValue)
+                delay(150)
+            }
+        }
+    }
+
     fun setSpeed(v: Float) { speed.value = v; player.setPlaybackSpeed(v) }
     fun toggleShuffle() { shuffle.value = !shuffle.value; player.shuffleModeEnabled = shuffle.value }
     fun cycleRepeat() {
@@ -260,6 +291,7 @@ object PlayerHub {
     }
 
     fun stop() {
+        clearLoop()
         savePosition()
         player.stop()
         player.clearMediaItems()
@@ -280,8 +312,11 @@ object PlayerHub {
         val path = t?.libraryPath ?: return
         if (recent.value.isEmpty()) recent.value = prefs.getString("recent", "")!!.split('\n').filter { it.isNotBlank() }
         recent.value = (listOf(path) + recent.value.filter { it != path }).take(12)
-        prefs.edit().putString("recent", recent.value.joinToString("\n")).apply()
+        prefs.edit().putString("recent", recent.value.joinToString("\n")).putLong("lp:$path", System.currentTimeMillis()).apply()
     }
+
+    /** when a library file was last opened (0 = never) */
+    fun lastPlayed(path: String): Long = if (!::app.isInitialized) 0L else prefs.getLong("lp:$path", 0L)
 
     fun loadRecent() {
         if (!::app.isInitialized) return

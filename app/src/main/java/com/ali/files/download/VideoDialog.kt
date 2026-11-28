@@ -117,6 +117,7 @@ fun VideoDialog(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     // a stray tap or swipe doesn't close it — only «✕» / «إلغاء» / back. It's part of the screen (not a
     // separate window), so closing it can never leave the browser under it frozen.
+    val startAt = remember { mutableStateOf(0L) }
     val close = onDismiss
     com.ali.files.ui.OverlaySheet(onBack = close) {
         Column(
@@ -239,13 +240,14 @@ fun VideoDialog(
                         }
                     }
 
+                    ScheduleChoice(startAt)
                     Spacer(Modifier.height(4.dp))
                     Button(
                         enabled = choice != null,
                         onClick = {
                             val c = choice ?: return@Button
                             if (c == AUDIO) { AppSettings.setAudioQuality(audioQ.name); AppSettings.setAudioFormat(audioFmt) }
-                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, if (c == AUDIO) audioQ else null, audioFmt)
+                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, if (c == AUDIO) audioQ else null, audioFmt, startAt = startAt.value)
                             onStarted()
                         },
                         shape = RoundedCornerShape(14.dp),
@@ -253,7 +255,7 @@ fun VideoDialog(
                     ) {
                         Icon(Icons.Filled.Download, null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (choice == AUDIO) "حمّل صوت ${audioQ.label}" + (if (s.meta.durationSec > 0) " (~${formatBytes(audioQ.bytes(audioFmt, s.meta.durationSec))})" else "") else startLabel(choice, s.meta), fontWeight = FontWeight.Bold)
+                        Text(if (startAt.value > 0) "حمّل الساعة ${clock(startAt.value)}" else if (choice == AUDIO) "حمّل صوت ${audioQ.label}" + (if (s.meta.durationSec > 0) " (~${formatBytes(audioQ.bytes(audioFmt, s.meta.durationSec))})" else "") else startLabel(choice, s.meta), fontWeight = FontWeight.Bold)
                     }
                     // play right away, without downloading
                     OutlinedButton(

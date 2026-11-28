@@ -106,7 +106,7 @@ object Downloader {
     fun isHlsUrl(url: String, mime: String?): Boolean =
         url.substringBefore('?').endsWith(".m3u8", true) || (mime?.contains("mpegurl", true) == true)
 
-    fun enqueue(req: DownloadRequest, threads: Int): Long {
+    fun enqueue(req: DownloadRequest, threads: Int, startAt: Long = 0): Long {
         val id = System.currentTimeMillis() * 10 + Random.nextInt(10)
         val hls = isHlsUrl(req.url, req.mime)
         var name = sanitizeFileName(req.fileName)
@@ -114,17 +114,18 @@ object Downloader {
         val item = DownloadItem(
             id = id, url = req.url, fileName = name, mime = req.mime, total = req.size,
             threads = threads.coerceIn(1, 16), headers = req.headers, hls = hls,
+            status = if (startAt > 0) DStatus.PAUSED else DStatus.QUEUED, scheduledAt = startAt,
         )
         _items.update { listOf(item) + it }
         save()
-        schedule()
+        if (startAt > 0) DownloadScheduler.plan(app, startAt) else schedule()
         return id
     }
 
     fun enqueueVideo(
         url: String, title: String, height: Int?, headers: Map<String, String>,
         audioQ: AudioQ? = null, audioFormat: String = "mp3",
-        libFolder: String? = null, group: String? = null,
+        libFolder: String? = null, group: String? = null, startAt: Long = 0,
     ): Long {
         val id = System.currentTimeMillis() * 10 + Random.nextInt(10)
         val audio = height == null
@@ -135,11 +136,12 @@ object Downloader {
             ytdlp = true, ytFormat = VideoExtractor.formatFor(height), audioOnly = audio,
             audioKbps = audioQ?.kbps(audioFormat) ?: 0, audioFormat = audioFormat, audioMono = audioQ?.mono == true,
             libFolder = libFolder, group = group,
+            status = if (startAt > 0) DStatus.PAUSED else DStatus.QUEUED, scheduledAt = startAt,
             note = if (audio) "صوت ${audioQ?.label ?: ""} ${audioFormat.uppercase()}".replace("  ", " ") else "فيديو ${height}p",
         )
         _items.update { listOf(item) + it }
         save()
-        schedule()
+        if (startAt > 0) DownloadScheduler.plan(app, startAt) else schedule()
         return id
     }
 
@@ -154,13 +156,20 @@ object Downloader {
     }
 
     fun resume(id: Long) {
-        update(id) { if (it.status == DStatus.PAUSED || it.status == DStatus.FAILED) it.copy(status = DStatus.QUEUED, error = null) else it }
+        update(id) { if (it.status == DStatus.PAUSED || it.status == DStatus.FAILED) it.copy(status = DStatus.QUEUED, error = null, scheduledAt = 0) else it }
         save()
         schedule()
     }
 
     fun pauseAll() = _items.value.filter { it.active }.forEach { pause(it.id) }
-    fun resumeAll() = _items.value.filter { it.status == DStatus.PAUSED }.forEach { resume(it.id) }
+    fun resumeAll() = _items.value.filter { it.status == DStatus.PAUSED && it.scheduledAt == 0L }.forEach { resume(it.id) }
+
+    /** the ones whose time has come («حمّل بعدين») start now; returns the next time still waiting (0 = none) */
+    fun startDue(): Long {
+        val now = System.currentTimeMillis()
+        _items.value.filter { it.status == DStatus.PAUSED && it.scheduledAt in 1..now }.forEach { resume(it.id) }
+        return _items.value.filter { it.status == DStatus.PAUSED && it.scheduledAt > now }.minOfOrNull { it.scheduledAt } ?: 0L
+    }
 
     fun remove(id: Long, deleteFile: Boolean) {
         if (get(id)?.ytdlp == true) VideoExtractor.cancel(id)

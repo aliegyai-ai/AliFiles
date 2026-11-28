@@ -33,6 +33,8 @@ object AppSettings {
     /** updates: "auto" (download + install by itself), "download" (download, ask before installing), "ask" */
     val updateMode = mutableStateOf("auto")
     val updateWifiOnly = mutableStateOf(true)
+    /** «حمّل بعدين» starts only on Wi-Fi */
+    val scheduleWifiOnly = mutableStateOf(true)
     /** «وضع النسيان»: sites forget your visits (except [keepSites]) when you come back to the app */
     val forgetMode = mutableStateOf(false)
     val keepSites = mutableStateOf<Set<String>>(emptySet())
@@ -62,6 +64,7 @@ object AppSettings {
         audioFormat.value = sp.getString("audioFormat", "mp3") ?: "mp3"
         updateMode.value = sp.getString("updateMode", "auto") ?: "auto"
         updateWifiOnly.value = sp.getBoolean("updateWifiOnly", true)
+        scheduleWifiOnly.value = sp.getBoolean("scheduleWifiOnly", true)
         forgetMode.value = sp.getBoolean("forgetMode", false)
         keepSites.value = sp.getStringSet("keepSites", emptySet())?.toSet() ?: emptySet()
         autoFolder.value = sp.getString("autoFolder", "none") ?: "none"
@@ -76,6 +79,7 @@ object AppSettings {
     fun setAutoFolder(v: String) { autoFolder.value = v; sp.edit().putString("autoFolder", v).apply() }
     fun setAutoGallery(v: Boolean) { autoGallery.value = v; sp.edit().putBoolean("autoGallery", v).apply() }
     fun setUpdateMode(v: String) { updateMode.value = v; sp.edit().putString("updateMode", v).apply() }
+    fun setScheduleWifiOnly(v: Boolean) { scheduleWifiOnly.value = v; sp.edit().putBoolean("scheduleWifiOnly", v).apply() }
     fun setUpdateWifiOnly(v: Boolean) { updateWifiOnly.value = v; sp.edit().putBoolean("updateWifiOnly", v).apply() }
     fun setForgetMode(v: Boolean) { forgetMode.value = v; sp.edit().putBoolean("forgetMode", v).apply() }
     fun setKeepSites(v: Set<String>) { keepSites.value = v; sp.edit().putStringSet("keepSites", v).apply() }
