@@ -247,7 +247,7 @@ fun VideoDialog(
                         onClick = {
                             val c = choice ?: return@Button
                             if (c == AUDIO) { AppSettings.setAudioQuality(audioQ.name); AppSettings.setAudioFormat(audioFmt) }
-                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, if (c == AUDIO) audioQ else null, audioFmt, startAt = startAt.value)
+                            Downloader.enqueueVideo(req.url, s.meta.title, if (c == AUDIO) null else c, req.headers, if (c == AUDIO) audioQ else null, audioFmt, startAt = startAt.value, thumb = s.meta.thumbnail)
                             onStarted()
                         },
                         shape = RoundedCornerShape(14.dp),

@@ -125,7 +125,7 @@ object Downloader {
     fun enqueueVideo(
         url: String, title: String, height: Int?, headers: Map<String, String>,
         audioQ: AudioQ? = null, audioFormat: String = "mp3",
-        libFolder: String? = null, group: String? = null, startAt: Long = 0,
+        libFolder: String? = null, group: String? = null, startAt: Long = 0, thumb: String? = null,
     ): Long {
         val id = System.currentTimeMillis() * 10 + Random.nextInt(10)
         val audio = height == null
@@ -136,7 +136,7 @@ object Downloader {
             ytdlp = true, ytFormat = VideoExtractor.formatFor(height), audioOnly = audio,
             audioKbps = audioQ?.kbps(audioFormat) ?: 0, audioFormat = audioFormat, audioMono = audioQ?.mono == true,
             libFolder = libFolder, group = group,
-            status = if (startAt > 0) DStatus.PAUSED else DStatus.QUEUED, scheduledAt = startAt,
+            status = if (startAt > 0) DStatus.PAUSED else DStatus.QUEUED, scheduledAt = startAt, thumbUrl = thumb,
             note = if (audio) "صوت ${audioQ?.label ?: ""} ${audioFormat.uppercase()}".replace("  ", " ") else "فيديو ${height}p",
         )
         _items.update { listOf(item) + it }
@@ -581,6 +581,14 @@ object Downloader {
             item.group?.let { com.ali.files.library.Library.addToGroup(it, dest.absolutePath) }
             update(id) { it.copy(status = DStatus.COMPLETED, speed = 0, libraryPath = dest.absolutePath, fileName = dest.name, mime = finalMime) }
             save()
+            // the video's own picture becomes the cover of the file
+            item.thumbUrl?.takeIf { it.startsWith("http") }?.let { u ->
+                runCatching {
+                    client.newCall(okhttp3.Request.Builder().url(u).build()).execute().use { r ->
+                        r.body?.bytes()?.let { com.ali.files.library.Library.saveCover(dest.name, it) }
+                    }
+                }
+            }
             Notifications.notifyDone(app, id, "اتحمّل في المكتبة", "${dest.name} • ${formatBytes(get(id)?.downloaded ?: 0)}")
             // «also save to the gallery»
             if (com.ali.files.util.AppSettings.autoGallery.value) runCatching {

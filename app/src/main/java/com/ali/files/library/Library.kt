@@ -623,8 +623,17 @@ object Library {
     private val durations = HashMap<String, Long>()
 
     /** Cover art of a song, or a frame from a video. Cached on disk. */
+    private val coverDir: File get() = File(app.filesDir, "covers").apply { mkdirs() }
+    /** the picture saved when a video was downloaded (found by the file's name, so it survives moving the file) */
+    fun coverFile(fileName: String): File = File(coverDir, fileName.lowercase().hashCode().toString() + ".jpg")
+    fun saveCover(fileName: String, bytes: ByteArray) {
+        val b = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return
+        runCatching { coverFile(fileName).outputStream().use { scaleDown(b, 720).compress(Bitmap.CompressFormat.JPEG, 88, it) } }
+    }
+
     suspend fun thumbnail(f: LibFile): Bitmap? = withContext(Dispatchers.IO) {
         if (f.kind != FileKind.VIDEO && f.kind != FileKind.AUDIO && f.kind != FileKind.IMAGE) return@withContext null
+        if (f.kind != FileKind.IMAGE) coverFile(f.name).takeIf { it.exists() }?.let { c -> BitmapFactory.decodeFile(c.path)?.let { return@withContext it } }
         val cache = File(thumbDir, "${f.path.hashCode()}_${f.modified}.jpg")
         if (cache.exists()) return@withContext BitmapFactory.decodeFile(cache.path)
         val bmp = runCatching {

@@ -93,6 +93,10 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.ali.files.download.Downloader
 import com.ali.files.library.Library
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -116,6 +120,8 @@ fun rememberArtwork(t: Track?): Bitmap? {
                             r.body?.bytes()?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                         }
                     art != null && art.startsWith("/") -> BitmapFactory.decodeFile(art)
+                    t?.libraryPath?.let { Library.coverFile(java.io.File(it).name) }?.exists() == true ->
+                        BitmapFactory.decodeFile(Library.coverFile(java.io.File(t.libraryPath!!).name).path)
                     t != null && t.uri.scheme != "http" && t.uri.scheme != "https" -> {
                         val r = MediaMetadataRetriever()
                         try {
@@ -133,9 +139,13 @@ fun rememberArtwork(t: Track?): Bitmap? {
 }
 
 @Composable
-private fun Artwork(bmp: Bitmap?, modifier: Modifier, corner: Int = 24, iconSize: Int = 72) {
+private fun Artwork(bmp: Bitmap?, modifier: Modifier, corner: Int = 24, iconSize: Int = 72, seed: String = "") {
+    // no picture: a cover coloured from the name, so every file looks different
+    val hue = if (seed.isEmpty()) 40f else (kotlin.math.abs(seed.hashCode()) % 360).toFloat()
+    val c1 = if (seed.isEmpty()) Color(0xFF4A3816) else Color.hsv(hue, 0.55f, 0.32f)
+    val c2 = if (seed.isEmpty()) Color(0xFF1C1710) else Color.hsv((hue + 40) % 360, 0.5f, 0.14f)
     Box(
-        modifier.clip(RoundedCornerShape(corner.dp)).background(Brush.linearGradient(listOf(Color(0xFF4A3816), Color(0xFF1C1710)))),
+        modifier.clip(RoundedCornerShape(corner.dp)).background(Brush.linearGradient(listOf(c1, c2))),
         contentAlignment = Alignment.Center,
     ) {
         if (bmp != null) Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -165,7 +175,7 @@ fun MiniPlayer() {
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Artwork(art, Modifier.size(42.dp), corner = 10, iconSize = 22)
+            Artwork(art, Modifier.size(42.dp), corner = 10, iconSize = 22, seed = t.title)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(t.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -206,8 +216,25 @@ fun NowPlayingScreen() {
         }
     }
 
+    // pull the player down to close it
+    val pull = remember { androidx.compose.animation.core.Animatable(0f) }
+    val pullScope = rememberCoroutineScope()
     // the screen below must not get taps through this one
-    Box(Modifier.fillMaxSize().background(Color(0xFF0E0D0B)).pointerInput(Unit) { detectTapGestures { } }) {
+    Box(
+        Modifier.fillMaxSize()
+            .offset { androidx.compose.ui.unit.IntOffset(0, pull.value.toInt()) }
+            .background(Color(0xFF0E0D0B))
+            .pointerInput(Unit) { detectTapGestures { } }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (pull.value > 260f) PlayerHub.musicOpen.value = false
+                        else pullScope.launch { pull.animateTo(0f) }
+                    },
+                    onDragCancel = { pullScope.launch { pull.animateTo(0f) } },
+                ) { _, d -> pullScope.launch { pull.snapTo((pull.value + d).coerceAtLeast(0f)) } }
+            },
+    ) {
         // blurred cover as the background (Android 12+)
         if (art != null && Build.VERSION.SDK_INT >= 31) {
             Image(art.asImageBitmap(), null, Modifier.fillMaxSize().blur(60.dp), contentScale = ContentScale.Crop, alpha = 0.45f)
@@ -228,7 +255,7 @@ fun NowPlayingScreen() {
             }
 
             Spacer(Modifier.height(18.dp))
-            Artwork(art, Modifier.fillMaxWidth(0.86f).aspectRatio(1f))
+            Artwork(art, Modifier.fillMaxWidth(0.86f).aspectRatio(1f), seed = t.title)
             Spacer(Modifier.height(26.dp))
 
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -245,14 +272,14 @@ fun NowPlayingScreen() {
             }
 
             Spacer(Modifier.height(10.dp))
-            Slider(
+            SleekSeekBar(
                 value = (dragging ?: position.toFloat()).coerceIn(0f, duration.toFloat().coerceAtLeast(1f)),
-                onValueChange = { dragging = it },
-                onValueChangeFinished = { dragging?.let { p.seekTo(it.toLong()) }; dragging = null },
-                valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold, inactiveTrackColor = Color(0xFF3A3328)),
+                max = duration.toFloat().coerceAtLeast(1f),
+                onChange = { dragging = it },
+                onDone = { dragging?.let { p.seekTo(it.toLong()) }; dragging = null },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 30.dp),
             )
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 30.dp)) {
                 Text(formatTime(dragging?.toLong() ?: position), color = Color(0xFFA39A88), fontSize = 12.sp, modifier = Modifier.weight(1f))
                 Text(formatTime(duration), color = Color(0xFFA39A88), fontSize = 12.sp)
             }
